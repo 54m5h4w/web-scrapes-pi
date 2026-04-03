@@ -1,12 +1,15 @@
 import os
 import json
 import time
-import logging
 import requests
-import boto3
-import boto3.session
 
-from datetime import datetime, date, timedelta, timezone
+from datetime import datetime, date, timedelta
+
+from common.aws import get_s3_client
+from common.logging_utils import get_logger
+from common.s3_paths import utc_iso, build_raw_key, build_latest_key, build_log_key
+from common.schema import build_record, build_dataset_payload, build_run_log
+from common.locations import get_location_name, build_location_object
 
 
 # =========================
@@ -16,7 +19,6 @@ from datetime import datetime, date, timedelta, timezone
 INSTALL = os.getenv("DEPUTY_INSTALL", "hospitalityone.au")
 API_KEY = os.getenv("DEPUTY_API_KEY")
 S3_BUCKET = os.getenv("S3_BUCKET", "event-scrape-data")
-AWS_PROFILE = os.getenv("AWS_PROFILE")
 
 DATASET = "staff-time-off"
 ACCESS_LEVEL = "restricted"
@@ -38,44 +40,6 @@ EXCLUDED_NAMES = {
     ("jonathan", "mooney"),
 }
 
-LOCATION_MAP = {
-    "HATF": {
-        "location_name": "Henry and the Fox",
-        "code": "HATF",
-        "search_text": "Henry and the Fox HATF Melbourne CBD",
-        "latitude": None,
-        "longitude": None,
-    },
-    "BP": {
-        "location_name": "BangPop",
-        "code": "BP",
-        "search_text": "BangPop BP South Wharf Melbourne",
-        "latitude": None,
-        "longitude": None,
-    },
-    "P5": {
-        "location_name": "Plus 5",
-        "code": "P5",
-        "search_text": "Plus 5 P5 South Wharf Melbourne",
-        "latitude": None,
-        "longitude": None,
-    },
-    "ALL": {
-        "location_name": "All Venues",
-        "code": "ALL",
-        "search_text": "All Venues Melbourne",
-        "latitude": None,
-        "longitude": None,
-    },
-    "UNKNOWN": {
-        "location_name": "Unknown",
-        "code": "UNKNOWN",
-        "search_text": "Unknown",
-        "latitude": None,
-        "longitude": None,
-    },
-}
-
 if not API_KEY:
     raise RuntimeError("Missing DEPUTY_API_KEY environment variable.")
 
@@ -88,44 +52,16 @@ HEADERS = {
 
 
 # =========================
-# LOGGING
+# LOGGING / AWS
 # =========================
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
-logger = logging.getLogger(__name__)
-
-
-# =========================
-# AWS CLIENT
-# =========================
-
-def get_s3_client():
-    if AWS_PROFILE:
-        logger.info(f"Using AWS profile: {AWS_PROFILE}")
-        session = boto3.session.Session(profile_name=AWS_PROFILE)
-        return session.client("s3")
-    logger.info("Using default AWS credentials")
-    return boto3.client("s3")
-
-
-s3 = get_s3_client()
+logger = get_logger(__name__)
+s3 = get_s3_client(logger=logger)
 
 
 # =========================
 # HELPERS
 # =========================
-
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-def utc_iso() -> str:
-    return utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
-
-def utc_file_ts() -> str:
-    return utc_now().strftime("%Y-%m-%dT%H-%M-%SZ")
 
 def iso_to_date(iso_str: str) -> date:
     return datetime.fromisoformat(iso_str).date()
@@ -226,18 +162,6 @@ def resolve_location_code(employee: dict) -> str:
 
     return company_map.get(employee.get("Company"), "UNKNOWN")
 
-def build_location_object(location_code: str) -> dict:
-    base = LOCATION_MAP.get(location_code, LOCATION_MAP["UNKNOWN"])
-    return {
-        "code": base["code"],
-        "search_text": base["search_text"],
-        "latitude": base["latitude"],
-        "longitude": base["longitude"],
-    }
-
-def get_location_name(location_code: str) -> str:
-    return LOCATION_MAP.get(location_code, LOCATION_MAP["UNKNOWN"])["location_name"]
-
 
 # =========================
 # RECORD BUILDING
@@ -294,27 +218,27 @@ def build_leave_records(employees: list[dict]) -> list[dict]:
                     continue
                 seen.add(key)
 
-                rows.append({
-                    "title": f"{full_name} Annual Leave",
-                    "date": day_str,
-                    "day_name": day_name_from_date_str(day_str),
-                    "start_time": None,
-                    "end_time": None,
-                    "location_name": location_name,
-                    "location": location_obj,
-                    "categories": ["Staff Time Off"],
-                    "audience_type": ["Internal", "Staffing"],
-                    "source": SOURCE_NAME,
-                    "source_url": SOURCE_URL,
-                    "type": RECORD_TYPE,
-                    "scraper": SCRAPER_NAME,
-                    "notes": "",
-                    "access": {
-                        "level": ACCESS_LEVEL,
-                        "dataset": DATASET,
-                        "allowed_roles": ALLOWED_ROLES,
-                    },
-                })
+                rows.append(
+                    build_record(
+                        title=f"{full_name} Annual Leave",
+                        date=day_str,
+                        day_name=day_name_from_date_str(day_str),
+                        start_time=None,
+                        end_time=None,
+                        location_name=location_name,
+                        location=location_obj,
+                        categories=["Staff Time Off"],
+                        audience_type=["Internal", "Staffing"],
+                        source=SOURCE_NAME,
+                        source_url=SOURCE_URL,
+                        record_type=RECORD_TYPE,
+                        scraper=SCRAPER_NAME,
+                        notes="",
+                        access_level=ACCESS_LEVEL,
+                        dataset=DATASET,
+                        allowed_roles=ALLOWED_ROLES,
+                    )
+                )
 
     rows.sort(key=lambda r: (r["date"], r["title"]))
     logger.info(f"Built {len(rows)} leave records")
@@ -326,46 +250,16 @@ def build_leave_records(employees: list[dict]) -> list[dict]:
 # =========================
 
 def build_payload(records: list[dict]) -> dict:
-    return {
-        "dataset": DATASET,
-        "source": SOURCE_NAME,
-        "source_url": SOURCE_URL,
-        "type": RECORD_TYPE,
-        "scraper": SCRAPER_NAME,
-        "access_level": ACCESS_LEVEL,
-        "allowed_roles": ALLOWED_ROLES,
-        "scraped_at": utc_iso(),
-        "record_count": len(records),
-        "records": records,
-    }
-
-def build_run_log(
-    started_at: str,
-    finished_at: str,
-    status: str,
-    employees_fetched: int,
-    records_uploaded: int,
-    raw_key: str | None,
-    latest_key: str | None,
-    error: str | None = None,
-) -> dict:
-    return {
-        "scraper": SCRAPER_NAME,
-        "dataset": DATASET,
-        "type": RECORD_TYPE,
-        "source": SOURCE_NAME,
-        "access_level": ACCESS_LEVEL,
-        "allowed_roles": ALLOWED_ROLES,
-        "status": status,
-        "started_at": started_at,
-        "finished_at": finished_at,
-        "employees_fetched": employees_fetched,
-        "records_uploaded": records_uploaded,
-        "bucket": S3_BUCKET,
-        "raw_key": raw_key,
-        "latest_key": latest_key,
-        "error": error,
-    }
+    return build_dataset_payload(
+        dataset=DATASET,
+        source=SOURCE_NAME,
+        source_url=SOURCE_URL,
+        record_type=RECORD_TYPE,
+        scraper=SCRAPER_NAME,
+        access_level=ACCESS_LEVEL,
+        allowed_roles=ALLOWED_ROLES,
+        records=records,
+    )
 
 
 # =========================
@@ -381,10 +275,8 @@ def upload_json_to_s3(key: str, payload: dict) -> None:
     )
 
 def upload_payload(payload: dict) -> dict:
-    timestamp = utc_file_ts()
-
-    raw_key = f"{ACCESS_LEVEL}/raw/{DATASET}/{timestamp}.json"
-    latest_key = f"{ACCESS_LEVEL}/latest/{DATASET}.json"
+    raw_key = build_raw_key(ACCESS_LEVEL, DATASET)
+    latest_key = build_latest_key(ACCESS_LEVEL, DATASET)
 
     upload_json_to_s3(raw_key, payload)
     upload_json_to_s3(latest_key, payload)
@@ -397,8 +289,7 @@ def upload_payload(payload: dict) -> dict:
     }
 
 def upload_run_log_to_s3(run_log: dict) -> str:
-    timestamp = utc_file_ts()
-    log_key = f"{ACCESS_LEVEL}/logs/{DATASET}/{timestamp}.json"
+    log_key = build_log_key(ACCESS_LEVEL, DATASET)
     upload_json_to_s3(log_key, run_log)
     return log_key
 
@@ -434,6 +325,13 @@ def main():
         finished_at = utc_iso()
 
         run_log = build_run_log(
+            scraper=SCRAPER_NAME,
+            dataset=DATASET,
+            record_type=RECORD_TYPE,
+            source=SOURCE_NAME,
+            access_level=ACCESS_LEVEL,
+            allowed_roles=ALLOWED_ROLES,
+            s3_bucket=S3_BUCKET,
             started_at=started_at,
             finished_at=finished_at,
             status="ok",
@@ -464,6 +362,13 @@ def main():
 
         try:
             run_log = build_run_log(
+                scraper=SCRAPER_NAME,
+                dataset=DATASET,
+                record_type=RECORD_TYPE,
+                source=SOURCE_NAME,
+                access_level=ACCESS_LEVEL,
+                allowed_roles=ALLOWED_ROLES,
+                s3_bucket=S3_BUCKET,
                 started_at=started_at,
                 finished_at=finished_at,
                 status="error",

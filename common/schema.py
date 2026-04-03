@@ -1,0 +1,106 @@
+from common.s3_paths import utc_iso
+
+
+def build_record(
+    *,
+    title: str,
+    date: str,
+    day_name: str,
+    start_time,
+    end_time,
+    location_name: str,
+    location: dict,
+    categories: list[str],
+    audience_type: list[str],
+    source: str,
+    source_url,
+    record_type: str,
+    scraper: str,
+    notes: str,
+    access_level: str,
+    dataset: str,
+    allowed_roles: list[str],
+) -> dict:
+    return {
+        "title": title,
+        "date": date,
+        "day_name": day_name,
+        "start_time": start_time,
+        "end_time": end_time,
+        "location_name": location_name,
+        "location": location,
+        "categories": categories,
+        "audience_type": audience_type,
+        "source": source,
+        "source_url": source_url,
+        "type": record_type,
+        "scraper": scraper,
+        "notes": notes,
+        "access": {
+            "level": access_level,
+            "dataset": dataset,
+            "allowed_roles": allowed_roles,
+        },
+    }
+
+
+def build_dataset_payload(
+    *,
+    dataset: str,
+    source: str,
+    source_url,
+    record_type: str,
+    scraper: str,
+    access_level: str,
+    allowed_roles: list[str],
+    records: list[dict],
+) -> dict:
+    return {
+        "dataset": dataset,
+        "source": source,
+        "source_url": source_url,
+        "type": record_type,
+        "scraper": scraper,
+        "access_level": access_level,
+        "allowed_roles": allowed_roles,
+        "scraped_at": utc_iso(),
+        "record_count": len(records),
+        "records": records,
+    }
+
+
+def build_run_log(
+    *,
+    scraper: str,
+    dataset: str,
+    record_type: str,
+    source: str,
+    access_level: str,
+    allowed_roles: list[str],
+    s3_bucket: str,
+    started_at: str,
+    finished_at: str,
+    status: str,
+    employees_fetched: int = 0,
+    records_uploaded: int = 0,
+    raw_key=None,
+    latest_key=None,
+    error=None,
+) -> dict:
+    return {
+        "scraper": scraper,
+        "dataset": dataset,
+        "type": record_type,
+        "source": source,
+        "access_level": access_level,
+        "allowed_roles": allowed_roles,
+        "status": status,
+        "started_at": started_at,
+        "finished_at": finished_at,
+        "employees_fetched": employees_fetched,
+        "records_uploaded": records_uploaded,
+        "bucket": s3_bucket,
+        "raw_key": raw_key,
+        "latest_key": latest_key,
+        "error": error,
+    }
