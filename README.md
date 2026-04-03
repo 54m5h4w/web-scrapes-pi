@@ -64,6 +64,33 @@ Each scraper outputs:
 
 ---
 
+## Event Dataset Strategy
+
+For public event sources, each scraper should write to its own source-specific dataset rather than sharing a single `public-events.json` file.
+
+### Source datasets
+
+```
+public/latest/marvel-events.json
+public/latest/mcec-events.json
+public/latest/eventbrite-events.json
+```
+
+### Aggregated dataset (future)
+
+```
+public/index/master.json
+```
+
+This approach:
+
+* keeps each source isolated for debugging and reliability
+* avoids scrapers overwriting each other
+* supports clean retry/idempotent runs
+* enables a scalable aggregation layer for UI/search
+
+---
+
 ## Record Schema (Summary)
 
 Each record follows a standard structure including:
@@ -145,6 +172,16 @@ Each run:
 9. Pull and test on Pi
 10. Add cron schedule if required
 
+### Event scraper naming
+
+For event scrapers, use **source-specific dataset names**:
+
+* `marvel-events`
+* `mcec-events`
+* `eventbrite-events`
+
+Do NOT have multiple scrapers write directly to the same `public-events` dataset.
+
 ---
 
 ## Key Principles
@@ -160,7 +197,7 @@ Each run:
 ## Future Roadmap
 
 * Additional scrapers (events, ticketing, weather, etc.)
-* Master dataset aggregation
+* Master dataset aggregation (`public/index/master.json`)
 * CloudFront-based UI with search (date, location)
 * Role-based access control
 * Data analytics and reporting

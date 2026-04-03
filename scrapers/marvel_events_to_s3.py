@@ -28,7 +28,7 @@ BASE = "https://www.marvelstadium.com.au"
 URL = f"{BASE}/events"
 S3_BUCKET = os.getenv("S3_BUCKET", "event-scrape-data")
 
-DATASET = "public-events"
+DATASET = "marvel-events"
 ACCESS_LEVEL = "public"
 ALLOWED_ROLES = ["staff", "supervisor", "manager", "admin"]
 RECORD_TYPE = "public_event"
