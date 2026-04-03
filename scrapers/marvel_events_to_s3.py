@@ -12,8 +12,6 @@ from selenium.common.exceptions import TimeoutException, StaleElementReferenceEx
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-
-from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 
 from common.aws import get_s3_client
@@ -86,7 +84,7 @@ def build_driver() -> webdriver.Chrome:
     options.add_argument("--lang=en-AU")
     options.binary_location = "/usr/bin/chromium"
 
-    service = Service("/usr/lib/chromium/chromedriver")
+    service = Service("/usr/bin/chromedriver")
     return webdriver.Chrome(service=service, options=options)
 
 
