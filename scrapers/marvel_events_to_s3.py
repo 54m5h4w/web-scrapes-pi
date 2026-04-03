@@ -13,6 +13,9 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+
 from common.aws import get_s3_client
 from common.logging_utils import get_logger
 from common.s3_paths import utc_iso, build_latest_key, build_log_key, build_raw_key
@@ -81,7 +84,10 @@ def build_driver() -> webdriver.Chrome:
     options.add_argument("--window-size=1600,2200")
     options.add_argument("--disable-gpu")
     options.add_argument("--lang=en-AU")
-    return webdriver.Chrome(options=options)
+    options.binary_location = "/usr/bin/chromium"
+
+    service = Service("/usr/lib/chromium/chromedriver")
+    return webdriver.Chrome(service=service, options=options)
 
 
 # =========================
