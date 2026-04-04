@@ -6,9 +6,7 @@ from datetime import datetime, timedelta
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
-from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -16,6 +14,7 @@ from common.aws import get_s3_client
 from common.logging_utils import get_logger
 from common.s3_paths import utc_iso, build_latest_key, build_log_key, build_raw_key
 from common.schema import build_dataset_payload, build_record, build_run_log
+from common.selenium_utils import build_chrome_driver
 
 
 # =========================
@@ -47,11 +46,6 @@ DEFAULT_AUDIENCE = ["Public"]
 DEFAULT_CATEGORY = "Public Event"
 
 PAGE_LOAD_SLEEP_SECONDS = float(os.getenv("MCG_PAGE_LOAD_SLEEP_SECONDS", "1.2"))
-SELENIUM_HEADLESS = os.getenv("SELENIUM_HEADLESS", "true").strip().lower() in {"1", "true", "yes", "y"}
-
-# Optional explicit overrides for browser/driver paths
-CHROME_BINARY = os.getenv("CHROME_BINARY", "").strip()
-CHROMEDRIVER_PATH = os.getenv("CHROMEDRIVER_PATH", "").strip()
 
 MONTH_MAP = {
     "jan": 1, "january": 1,
@@ -75,79 +69,6 @@ MONTH_MAP = {
 
 logger = get_logger(__name__)
 s3 = get_s3_client(logger=logger)
-
-
-# =========================
-# SELENIUM
-# =========================
-
-def build_driver() -> webdriver.Chrome:
-    """
-    Cross-platform Chrome/Chromium driver builder.
-
-    Priority:
-    1. Use explicit env vars if supplied:
-       - CHROME_BINARY
-       - CHROMEDRIVER_PATH
-
-    2. On Linux / Raspberry Pi:
-       - prefer standard Chromium/chromedriver paths if present
-
-    3. On Windows / local PC:
-       - fall back to Selenium Manager / installed Chrome automatically
-
-    This lets the same scraper run locally and on the Pi without code edits.
-    """
-    options = webdriver.ChromeOptions()
-
-    if SELENIUM_HEADLESS:
-        options.add_argument("--headless=new")
-
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1600,2200")
-    options.add_argument("--lang=en-AU")
-    options.add_argument(f"--user-agent={UA}")
-
-    # 1) Explicit env vars always win
-    if CHROME_BINARY:
-        options.binary_location = CHROME_BINARY
-        logger.info(f"Using CHROME_BINARY from env: {CHROME_BINARY}")
-
-    if CHROMEDRIVER_PATH:
-        logger.info(f"Using CHROMEDRIVER_PATH from env: {CHROMEDRIVER_PATH}")
-        service = Service(CHROMEDRIVER_PATH)
-        return webdriver.Chrome(service=service, options=options)
-
-    # 2) Raspberry Pi / Linux fallback
-    linux_chrome_candidates = [
-        "/usr/bin/chromium",
-        "/usr/bin/chromium-browser",
-        "/usr/bin/google-chrome",
-        "/snap/bin/chromium",
-    ]
-    linux_driver_candidates = [
-        "/usr/bin/chromedriver",
-        "/usr/lib/chromium/chromedriver",
-    ]
-
-    if os.name != "nt":
-        chrome_path = next((p for p in linux_chrome_candidates if os.path.isfile(p)), "")
-        driver_path = next((p for p in linux_driver_candidates if os.path.isfile(p)), "")
-
-        if chrome_path:
-            options.binary_location = chrome_path
-            logger.info(f"Using detected Linux browser binary: {chrome_path}")
-
-        if driver_path:
-            logger.info(f"Using detected Linux chromedriver: {driver_path}")
-            service = Service(driver_path)
-            return webdriver.Chrome(service=service, options=options)
-
-    # 3) Local Windows / generic fallback
-    logger.info("Using Selenium Manager / default local Chrome discovery")
-    return webdriver.Chrome(options=options)
 
 
 # =========================
@@ -230,7 +151,7 @@ def build_notes(time_text: str, aria_label: str | None = None) -> str:
 # =========================
 
 def fetch_events_page_html() -> str:
-    driver = build_driver()
+    driver = build_chrome_driver(user_agent=UA)
     wait = WebDriverWait(driver, 30)
 
     try:
