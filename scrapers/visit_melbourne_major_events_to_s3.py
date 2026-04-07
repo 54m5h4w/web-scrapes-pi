@@ -200,7 +200,9 @@ def dismiss_common_banners(driver) -> None:
 
 def wait_for_tile_grid(driver) -> None:
     WebDriverWait(driver, PAGE_WAIT_SECONDS).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, "div.summary-items-grid"))
+        lambda d: d.find_elements(By.CSS_SELECTOR, "div.summary-item.is-type-product")
+        or d.find_elements(By.CSS_SELECTOR, "div.summary-item")
+        or d.find_elements(By.CSS_SELECTOR, "a.title[href]")
     )
 
 
@@ -292,14 +294,38 @@ def fetch_events_page_html() -> tuple[str, int]:
 
 
 def parse_tile_grid(html: str) -> list[dict]:
+    """
+    Parses the Visit Melbourne tile cards.
+
+    Works whether cards sit inside:
+      div.summary-items-grid
+    or are present without that wrapper.
+
+    Extracts:
+    - title
+    - url
+    - category
+    - location
+    - date_only
+    - event_start_date
+    - event_end_date
+    - image
+    """
     soup = BeautifulSoup(html, "html.parser")
-    rows = []
+    events: list[dict] = []
 
     grid = soup.select_one("div.summary-items-grid")
-    if not grid:
-        return rows
 
-    for item in grid.select("div.summary-item.is-type-product"):
+    if grid:
+        items = grid.select("div.summary-item.is-type-product")
+    else:
+        items = soup.select("div.summary-item.is-type-product")
+
+    if not items:
+        items = soup.select("div.summary-item")
+
+    for item in items:
+        # URL: prefer the title link
         title_a = item.select_one("a.title[href]")
         any_a = item.select_one("a[href]")
 
@@ -309,53 +335,54 @@ def parse_tile_grid(html: str) -> list[dict]:
         elif any_a and any_a.get("href"):
             href = any_a["href"].strip()
 
-        source_url = urljoin(BASE, href) if href else ""
+        url = urljoin(BASE, href) if href else ""
 
+        # Title
         h4 = item.select_one("a.title h4")
-        title = clean(h4.get_text(" ", strip=True) if h4 else "")
+        if not h4:
+            h4 = item.select_one("h4")
+        title = h4.get_text(" ", strip=True) if h4 else ""
 
+        # Category + location
         town_el = item.select_one("div.town.small-copy, div.town")
-        town_text = clean(town_el.get_text(" ", strip=True) if town_el else "")
-        category, location_name = split_category_location(town_text)
+        town_text = town_el.get_text(" ", strip=True) if town_el else ""
+        category, location = split_category_location(town_text)
 
-        date_el = item.select_one("div.date.small-copy span, div.date span")
-        date_raw = clean(date_el.get_text(" ", strip=True) if date_el else "")
+        # Date raw: may include price after separator dot
+        date_el = item.select_one("div.date.small-copy span, div.date span, div.date")
+        date_raw = date_el.get_text(" ", strip=True) if date_el else ""
         date_only = strip_price(date_raw) if date_raw else ""
-        start_date, end_date = parse_date_range(date_only)
 
-        img = item.select_one("figure.image img")
-        image_url = ""
+        start_iso, end_iso = ("", "")
+        if date_only:
+            start_iso, end_iso = parse_date_range(date_only)
+
+        # Image
+        img = item.select_one("figure.image img, img")
+        img_src = ""
         if img:
-            image_url = clean(img.get("data-src") or img.get("src") or "")
-            if image_url:
-                image_url = urljoin(BASE, image_url)
+            img_src = (img.get("data-src") or img.get("src") or "").strip()
+            if img_src:
+                img_src = urljoin(BASE, img_src)
 
-        if not (title and source_url and start_date):
+        if not (title or url):
             continue
 
-        rows.append(
+        events.append(
             {
                 "title": title,
-                "category": category or DEFAULT_CATEGORY,
-                "location_name": location_name or DEFAULT_LOCATION_NAME,
-                "date": start_date,
-                "event_end_date": end_date,
-                "displayed_date": date_only,
-                "source_url": source_url,
-                "image_url": image_url,
+                "category": category,
+                "location": location,
+                "date_only": date_only,
+                "event_start_date": start_iso,
+                "event_end_date": end_iso,
+                "url": url,
+                "image": img_src,
+                "source": URL,
             }
         )
 
-    seen = set()
-    deduped = []
-    for row in rows:
-        key = (row["source_url"], row["date"])
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(row)
-
-    return deduped
+    return dedupe(events)
 
 
 # =========================
@@ -367,11 +394,16 @@ def build_event_records(parsed_rows: list[dict]) -> list[dict]:
     records = []
 
     for row in parsed_rows:
-        location_name = row["location_name"] or DEFAULT_LOCATION_NAME
+        event_date = row.get("event_start_date")
+        if not event_date:
+            continue
+
+        location_name = row.get("location") or DEFAULT_LOCATION_NAME
+
         record = build_record(
-            title=row["title"],
-            date=row["date"],
-            day_name=day_name_from_date_str(row["date"]),
+            title=row.get("title", ""),
+            date=event_date,
+            day_name=day_name_from_date_str(event_date),
             start_time=None,
             end_time=None,
             location_name=location_name,
@@ -379,10 +411,14 @@ def build_event_records(parsed_rows: list[dict]) -> list[dict]:
             categories=[row["category"]] if row.get("category") else [DEFAULT_CATEGORY],
             audience_type=DEFAULT_AUDIENCE,
             source=SOURCE_NAME,
-            source_url=row["source_url"],
+            source_url=row.get("url", ""),
             record_type=RECORD_TYPE,
             scraper=SCRAPER_NAME,
-            notes=build_notes(row.get("displayed_date", ""), row.get("event_end_date"), row.get("image_url")),
+            notes=build_notes(
+                row.get("date_only", ""),
+                row.get("event_end_date"),
+                row.get("image"),
+            ),
             access_level=ACCESS_LEVEL,
             dataset=DATASET,
             allowed_roles=ALLOWED_ROLES,
@@ -406,6 +442,16 @@ def build_payload(records: list[dict]) -> dict:
         records=records,
     )
 
+def dedupe(events: list[dict]) -> list[dict]:
+    seen = set()
+    uniq = []
+    for e in events:
+        key = e.get("url") or (e.get("title", "") + "||" + e.get("date_only", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(e)
+    return uniq
 
 # =========================
 # S3 OUTPUT
