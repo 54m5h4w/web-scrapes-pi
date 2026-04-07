@@ -200,11 +200,14 @@ def dismiss_common_banners(driver) -> None:
 
 def wait_for_tile_grid(driver) -> None:
     WebDriverWait(driver, PAGE_WAIT_SECONDS).until(
-        lambda d: d.find_elements(By.CSS_SELECTOR, "div.summary-item.is-type-product")
-        or d.find_elements(By.CSS_SELECTOR, "div.summary-item")
-        or d.find_elements(By.CSS_SELECTOR, "a.title[href]")
+        lambda d: (
+            len(d.find_elements(By.CSS_SELECTOR, "div.summary-item.is-type-product")) > 0
+            or len(d.find_elements(By.CSS_SELECTOR, "div.summary-item")) > 0
+            or len(d.find_elements(By.CSS_SELECTOR, "a.title[href]")) > 0
+            or "summary-items-container" in (d.page_source or "")
+            or "summary-item" in (d.page_source or "")
+        )
     )
-
 
 def click_more_until_gone(driver, max_clicks: int = 30) -> int:
     clicks = 0
@@ -269,24 +272,43 @@ def fetch_events_page_html() -> tuple[str, int]:
     try:
         logger.info(f"Opening {URL}")
         driver.get(URL)
-        time.sleep(2)
+        time.sleep(3)
 
         dismiss_common_banners(driver)
+        time.sleep(1.5)
+
+        # force some page movement so lazy content hydrates
+        for pos in (0.25, 0.5, 0.8, 0.0):
+            try:
+                driver.execute_script(
+                    f"window.scrollTo(0, document.body.scrollHeight * {pos});"
+                )
+                time.sleep(1.2)
+            except Exception:
+                pass
 
         try:
-            wait_for_tile_grid(driver)
+            WebDriverWait(driver, PAGE_WAIT_SECONDS).until(
+                lambda d: (
+                    len(d.find_elements(By.CSS_SELECTOR, "div.summary-item.is-type-product")) > 0
+                    or len(d.find_elements(By.CSS_SELECTOR, "div.summary-item")) > 0
+                    or len(d.find_elements(By.CSS_SELECTOR, "a.title[href]")) > 0
+                    or "summary-items-container" in (d.page_source or "")
+                    or "summary-item" in (d.page_source or "")
+                )
+            )
         except TimeoutException:
             dump_debug(driver, "no_tile_grid")
             raise
 
         clicks = click_more_until_gone(driver, max_clicks=MAX_MORE_CLICKS)
+
         if clicks:
-            wait_for_tile_grid(driver)
+            time.sleep(2)
 
         return driver.page_source, clicks
     finally:
         driver.quit()
-
 
 # =========================
 # PARSING
