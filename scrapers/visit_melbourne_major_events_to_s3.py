@@ -203,12 +203,10 @@ def wait_for_tile_grid(driver) -> None:
         lambda d: (
             len(d.find_elements(By.CSS_SELECTOR, "div.summary-item.is-type-product")) > 0
             or len(d.find_elements(By.CSS_SELECTOR, "div.summary-item")) > 0
-            or len(d.find_elements(By.CSS_SELECTOR, "a.title[href]")) > 0
-            or "summary-items-container" in (d.page_source or "")
-            or "summary-item" in (d.page_source or "")
+            or len(d.find_elements(By.CSS_SELECTOR, "a.title[href] h4")) > 0
         )
     )
-
+    
 def click_more_until_gone(driver, max_clicks: int = 30) -> int:
     clicks = 0
     xpaths = [
@@ -292,9 +290,7 @@ def fetch_events_page_html() -> tuple[str, int]:
                 lambda d: (
                     len(d.find_elements(By.CSS_SELECTOR, "div.summary-item.is-type-product")) > 0
                     or len(d.find_elements(By.CSS_SELECTOR, "div.summary-item")) > 0
-                    or len(d.find_elements(By.CSS_SELECTOR, "a.title[href]")) > 0
-                    or "summary-items-container" in (d.page_source or "")
-                    or "summary-item" in (d.page_source or "")
+                    or len(d.find_elements(By.CSS_SELECTOR, "a.title[href] h4")) > 0
                 )
             )
         except TimeoutException:
@@ -306,7 +302,15 @@ def fetch_events_page_html() -> tuple[str, int]:
         if clicks:
             time.sleep(2)
 
+        logger.info(
+            "DOM counts: summary-item.is-type-product=%s, summary-item=%s, title-h4=%s",
+            len(driver.find_elements(By.CSS_SELECTOR, "div.summary-item.is-type-product")),
+            len(driver.find_elements(By.CSS_SELECTOR, "div.summary-item")),
+            len(driver.find_elements(By.CSS_SELECTOR, "a.title[href] h4")),
+)
+        
         return driver.page_source, clicks
+    
     finally:
         driver.quit()
 
