@@ -35,7 +35,6 @@ ALLOWED_ROLES = ["staff", "supervisor", "manager", "admin"]
 RECORD_TYPE = "public_event"
 SCRAPER_NAME = "manual-events-v1"
 SOURCE_NAME = "Manual"
-SOURCE_URL = "https://docs.google.com/spreadsheets/d/1PU7yKlL9N1qypTtK9ABNfCRx-FFgTo96iKFaOQ-Pq4g/edit#gid=2138812343"
 DEFAULT_AUDIENCE = ["Public"]
 DEFAULT_CATEGORY = "Manual Event"
 DEFAULT_LOCATION_CODE = os.getenv("MANUAL_EVENTS_DEFAULT_LOCATION_CODE", "").strip().upper()
@@ -143,24 +142,24 @@ def extract_sheet_browser_url(csv_url: str) -> str | None:
     return None
 
 
-def resolve_location(location_code: str) -> tuple[str, dict]:
-    code = clean(location_code).upper() or DEFAULT_LOCATION_CODE
+def resolve_location(location_value: str) -> tuple[str, dict]:
+    location_text = clean(location_value)
 
-    if code and build_location_object and get_location_name:
-        try:
-            return get_location_name(code), build_location_object(code)
-        except Exception:
-            logger.warning(f"Unknown location code '{code}', falling back to generic object")
+    if location_text:
+        return location_text, {
+            "code": "MANUAL",
+            "search_text": location_text,
+            "latitude": None,
+            "longitude": None,
+        }
 
-    fallback_code = code or "MANUAL"
-    fallback_name = code or "Manual / Unspecified Location"
+    fallback_name = "Manual / Unspecified Location"
     return fallback_name, {
-        "code": fallback_code,
+        "code": "MANUAL",
         "search_text": fallback_name,
         "latitude": None,
         "longitude": None,
     }
-
 
 def upload_json_to_s3(key: str, payload: dict) -> None:
     s3.put_object(
@@ -175,7 +174,7 @@ def upload_json_to_s3(key: str, payload: dict) -> None:
 # FETCH / PARSE
 # =========================
 
-def fetch_csv_text() -> tuple[str, str]:
+def fetch_csv_text() -> str:
     csv_url = build_csv_url()
     logger.info(f"Fetching manual events CSV: {csv_url}")
 
@@ -234,11 +233,10 @@ def build_event_records(parsed_rows: list[dict], sheet_source_url: str) -> tuple
             category = clean(row.get("category")) or DEFAULT_CATEGORY
             audience = parse_list_cell(row.get("audience", ""), default=DEFAULT_AUDIENCE)
             notes = clean(row.get("notes", ""))
-            source_url = clean(row.get("source_url")) or sheet_source_url
-            location_code = clean(row.get("location_code", ""))
-
-            location_name, location_obj = resolve_location(location_code)
-
+            source_url = clean(row.get("source_url")) or None
+            location_value = clean(row.get("location", ""))
+            location_name, location_obj = resolve_location(location_value)
+            
             dedupe_key = (
                 title.lower(),
                 date_iso,
@@ -291,7 +289,7 @@ def build_payload(records: list[dict], sheet_source_url: str) -> dict:
     return build_dataset_payload(
         dataset=DATASET,
         source=SOURCE_NAME,
-        source_url=sheet_source_url,
+        source_url=None,
         record_type=RECORD_TYPE,
         scraper=SCRAPER_NAME,
         access_level=ACCESS_LEVEL,
