@@ -2,6 +2,8 @@ import json
 import os
 from datetime import date, datetime
 from typing import Any
+import boto3
+import time
 
 from common.aws import get_s3_client
 from common.logging_utils import get_logger
@@ -18,6 +20,7 @@ DATASET = "access-indexes"
 SCRAPER_NAME = "access-indexes-v1"
 SOURCE_NAME = "Aggregator"
 SOURCE_URL = None
+CLOUDFRONT_DISTRIBUTION_ID = os.getenv("CLOUDFRONT_DISTRIBUTION_ID", "E6R69V6ZSXCW1").strip()
 
 TARGET_ACCESS_LEVELS = ["public", "restricted"]
 EXCLUDED_LATEST_FILENAMES = {
@@ -277,6 +280,44 @@ def build_run_log(*, started_at: str, finished_at: str, status: str, access_summ
         "access_summaries": access_summaries,
         "error": error,
     }
+    
+def invalidate_cloudfront(paths: list[str] | None = None) -> dict | None:
+    if not CLOUDFRONT_DISTRIBUTION_ID:
+        logger.warning("No CLOUDFRONT_DISTRIBUTION_ID set — skipping CloudFront invalidation")
+        return None
+
+    if not paths:
+        paths = [
+            "/public/index/*",
+            "/restricted/index/*",
+        ]
+
+    logger.info(
+        "Creating CloudFront invalidation | distribution_id=%s paths=%s",
+        CLOUDFRONT_DISTRIBUTION_ID,
+        paths,
+    )
+
+    cf = boto3.client("cloudfront")
+
+    response = cf.create_invalidation(
+        DistributionId=CLOUDFRONT_DISTRIBUTION_ID,
+        InvalidationBatch={
+            "Paths": {
+                "Quantity": len(paths),
+                "Items": paths,
+            },
+            "CallerReference": str(time.time()),
+        },
+    )
+
+    invalidation = response.get("Invalidation", {})
+    logger.info(
+        "CloudFront invalidation created | id=%s status=%s",
+        invalidation.get("Id"),
+        invalidation.get("Status"),
+    )
+    return invalidation
 
 
 # =========================
@@ -414,11 +455,15 @@ def main() -> None:
         )
         upload_json_to_s3(log_key, run_log)
 
+        invalidation = invalidate_cloudfront()
+
         print(json.dumps({
             "status": "ok",
             "bucket": S3_BUCKET,
             "access_summaries": summaries,
             "log_key": log_key,
+            "cloudfront_distribution_id": CLOUDFRONT_DISTRIBUTION_ID,
+            "cloudfront_invalidation": invalidation,
         }, indent=2))
 
     except Exception as exc:
