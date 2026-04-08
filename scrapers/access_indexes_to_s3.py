@@ -464,7 +464,7 @@ def main() -> None:
             "log_key": log_key,
             "cloudfront_distribution_id": CLOUDFRONT_DISTRIBUTION_ID,
             "cloudfront_invalidation": invalidation,
-        }, indent=2))
+        }, indent=2, default=str))
 
     except Exception as exc:
         finished_at = utc_iso()
