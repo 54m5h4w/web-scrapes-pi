@@ -28,6 +28,7 @@ RECORD_TYPE = "public_event"
 SCRAPER_NAME = "ticketmaster-plenary-events-v1"
 SOURCE_NAME = "Ticketmaster"
 SOURCE_URL = URL
+FILTER_LABEL = "MCEC"
 
 LOCATION_NAME = "Plenary, Melbourne Convention and Exhibition Centre"
 LOCATION_OBJECT = {
@@ -349,6 +350,7 @@ def build_event_records(parsed_rows: list[dict]) -> list[dict]:
             location=row["location"],
             categories=row["categories"],
             audience_type=row["audience_type"],
+            filter=FILTER_LABEL,  # 👈 ADD THIS
             source=row["source"],
             source_url=row["source_url"],
             record_type=RECORD_TYPE,

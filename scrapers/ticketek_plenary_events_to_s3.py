@@ -28,6 +28,7 @@ RECORD_TYPE = "public_event"
 SCRAPER_NAME = "ticketek-plenary-events-v1"
 SOURCE_NAME = "Ticketek"
 SOURCE_URL = "https://premier.ticketek.com.au/"
+FILTER = "MCEC"
 
 SEARCH_TERM = os.getenv("TICKETEK_SEARCH_TERM", "Plenary")
 DEFAULT_LOCATION_NAME = "Plenary Theatre - South Wharf"
@@ -272,6 +273,7 @@ def build_ticketek_records(events: list[TicketekEvent]) -> list[dict]:
             access_level=ACCESS_LEVEL,
             dataset=DATASET,
             allowed_roles=ALLOWED_ROLES,
+            filter="MCEC",  # 👈 ADD THIS
         )
         records.append(record)
 

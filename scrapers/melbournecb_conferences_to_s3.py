@@ -23,6 +23,7 @@ RECORD_TYPE = "public_event"
 SCRAPER_NAME = "melbournecb-conferences-v1"
 SOURCE_NAME = "Melbourne Convention Bureau"
 SOURCE_URL = "https://www.melbournecb.com.au/conferences"
+FILTER = "MCEC"
 
 MCB_API_URL = "https://www.melbournecb.com.au/api/feature/content/mcbeventlistings"
 
@@ -160,6 +161,7 @@ def build_records(listings: list[dict]) -> list[dict]:
                 access_level=ACCESS_LEVEL,
                 dataset=DATASET,
                 allowed_roles=ALLOWED_ROLES,
+                filter=FILTER,
             )
 
             records.append(record)

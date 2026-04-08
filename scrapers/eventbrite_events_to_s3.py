@@ -33,6 +33,7 @@ RECORD_TYPE = "public_event"
 SCRAPER_NAME = "eventbrite-events-v1"
 SOURCE_NAME = "Eventbrite"
 SOURCE_URL = URL
+FILTER_LABEL = "Eventbrite"
 
 LOCATION_NAME = "Eventbrite Southbank / South Wharf"
 LOCATION_OBJECT = {
@@ -949,6 +950,7 @@ def build_event_records(rows: list[dict]) -> list[dict]:
                 location=LOCATION_OBJECT,
                 categories=["Eventbrite"],
                 audience_type=["Public"],
+                filter=FILTER_LABEL,
                 source=SOURCE_NAME,
                 source_url=row.get("source_url") or BASE_SOURCE_URL,
                 record_type=RECORD_TYPE,

@@ -27,6 +27,7 @@ RECORD_TYPE = "public_event"
 SCRAPER_NAME = "victorian-school-holidays-v1"
 SOURCE_NAME = "vic.gov.au"
 SOURCE_URL = URL
+FILTER_LABEL = "School Holidays"
 
 HEADERS = {
     "User-Agent": (
@@ -266,6 +267,7 @@ def build_school_holiday_records(term_data: dict[int, dict[str, tuple[date, date
                         location=LOCATION_OBJECT,
                         categories=[category],
                         audience_type=["Public"],
+                        filter=FILTER_LABEL,  # 👈 ADD THIS
                         source=SOURCE_NAME,
                         source_url=SOURCE_URL,
                         record_type=RECORD_TYPE,
@@ -276,7 +278,7 @@ def build_school_holiday_records(term_data: dict[int, dict[str, tuple[date, date
                         allowed_roles=ALLOWED_ROLES,
                     )
                 )
-
+                
         # Last School Day = Term 4 finish date
         last_school_day = iso(t["Term 4"][1])
         records.append(
@@ -298,6 +300,7 @@ def build_school_holiday_records(term_data: dict[int, dict[str, tuple[date, date
                 access_level=ACCESS_LEVEL,
                 dataset=DATASET,
                 allowed_roles=ALLOWED_ROLES,
+                filter=FILTER_LABEL,
             )
         )
 
@@ -323,6 +326,7 @@ def build_school_holiday_records(term_data: dict[int, dict[str, tuple[date, date
                     access_level=ACCESS_LEVEL,
                     dataset=DATASET,
                     allowed_roles=ALLOWED_ROLES,
+                    filter=FILTER_LABEL,
                 )
             )
         else:

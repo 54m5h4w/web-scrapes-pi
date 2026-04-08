@@ -32,6 +32,8 @@ RECORD_TYPE = "public_event"
 SCRAPER_NAME = "melbourne-park-events-v1"
 SOURCE_NAME = "Melbourne Park"
 SOURCE_URL = BASE_URL
+FILTER_LABEL = "Melbourne Park"
+
 
 DEFAULT_AUDIENCE = ["Public"]
 DEFAULT_LOCATION_SEARCH = "Melbourne Park Melbourne VIC Australia"
@@ -279,6 +281,7 @@ def build_event_records(parsed_rows: list[dict]) -> list[dict]:
                 location=row["location"],
                 categories=[row["category"]] if row.get("category") else [DEFAULT_CATEGORY],
                 audience_type=DEFAULT_AUDIENCE,
+                filter=FILTER_LABEL,
                 source=SOURCE_NAME,
                 source_url=row.get("source_url") or SOURCE_URL,
                 record_type=RECORD_TYPE,

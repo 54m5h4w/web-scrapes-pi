@@ -35,6 +35,7 @@ RECORD_TYPE = "public_event"
 SCRAPER_NAME = "marvel-events-v1"
 SOURCE_NAME = "Marvel Stadium"
 SOURCE_URL = URL
+FILTER_LABEL = "Marvel"
 
 LOCATION_NAME = "Marvel Stadium"
 LOCATION_OBJECT = {
@@ -317,6 +318,7 @@ def build_event_records(events: list[dict]) -> tuple[list[dict], int]:
             location=LOCATION_OBJECT,
             categories=categories,
             audience_type=DEFAULT_AUDIENCE,
+            filter=FILTER_LABEL,
             source=SOURCE_NAME,
             source_url=source_url,
             record_type=RECORD_TYPE,

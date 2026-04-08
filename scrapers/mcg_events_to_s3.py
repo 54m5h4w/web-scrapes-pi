@@ -33,6 +33,7 @@ RECORD_TYPE = "public_event"
 SCRAPER_NAME = "mcg-events-v1"
 SOURCE_NAME = "MCG"
 SOURCE_URL = URL
+FILTER_LABEL = "MCG"
 
 LOCATION_NAME = "MCG"
 LOCATION_OBJECT = {
@@ -280,6 +281,7 @@ def build_event_records(parsed_rows: list[dict]) -> list[dict]:
             location=LOCATION_OBJECT,
             categories=[row["category"]] if row.get("category") else [DEFAULT_CATEGORY],
             audience_type=DEFAULT_AUDIENCE,
+            filter=FILTER_LABEL,
             source=SOURCE_NAME,
             source_url=row["source_url"],
             record_type=RECORD_TYPE,
@@ -294,7 +296,6 @@ def build_event_records(parsed_rows: list[dict]) -> list[dict]:
     records.sort(key=lambda r: (r["date"], r["start_time"] or "", r["title"]))
     logger.info(f"Built {len(records)} event records")
     return records
-
 
 def build_payload(records: list[dict]) -> dict:
     return build_dataset_payload(

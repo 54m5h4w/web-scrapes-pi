@@ -34,6 +34,7 @@ RECORD_TYPE = "public_event"
 SCRAPER_NAME = "mcec-whats-on-v1"
 SOURCE_NAME = "MCEC"
 SOURCE_URL = URL
+FILTER_LABEL = "MCEC"
 
 LOCATION_NAME = "MCEC"
 LOCATION_OBJECT = {
@@ -393,6 +394,7 @@ def build_event_records(parsed_rows: list[dict]) -> list[dict]:
             location=LOCATION_OBJECT,
             categories=row["categories"] if row.get("categories") else [DEFAULT_CATEGORY],
             audience_type=row["audience_type"] if row.get("audience_type") else DEFAULT_AUDIENCE,
+            filter=FILTER_LABEL,
             source=SOURCE_NAME,
             source_url=row["source_url"],
             record_type=RECORD_TYPE,

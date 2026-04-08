@@ -26,6 +26,7 @@ ACCESS_LEVEL = "public"
 ALLOWED_ROLES = ["staff", "supervisor", "manager", "admin"]
 RECORD_TYPE = "public_holiday"
 SCRAPER_NAME = "vic-public-holidays-v1"
+FILTER_LABEL = "Public Holidays"
 
 LOCATION_NAME = "Victoria"
 LOCATION_OBJECT = {
@@ -263,6 +264,7 @@ def build_holiday_records(parsed_rows: list[dict]) -> list[dict]:
                 location=LOCATION_OBJECT,
                 categories=[DEFAULT_CATEGORY],
                 audience_type=DEFAULT_AUDIENCE,
+                filter=FILTER_LABEL,
                 source=SOURCE_NAME,
                 source_url=row["source_url"],
                 record_type=RECORD_TYPE,

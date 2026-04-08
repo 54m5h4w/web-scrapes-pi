@@ -333,6 +333,7 @@ def build_event_records(items: list[dict]) -> tuple[list[dict], int]:
                     access_level=ACCESS_LEVEL,
                     dataset=DATASET,
                     allowed_roles=ALLOWED_ROLES,
+                    filter=["Major Events"],  
                 )
             )
 

@@ -30,6 +30,7 @@ RECORD_TYPE = "public_event"
 SCRAPER_NAME = "mcec-swmg-pdf-v1"
 SOURCE_NAME = "SW Members Group PDF"
 SOURCE_URL = None
+FILTER_LABEL = "MCEC"
 
 LOCATION_SEARCH_TEXT = "Melbourne Convention and Exhibition Centre South Wharf Melbourne VIC Australia"
 
@@ -138,20 +139,36 @@ def build_location_object(location_name: str) -> dict:
     }
 
 
-def build_record(*, title: str, date: str, start_time: str | None, end_time: str | None,
-                 location_name: str, categories: list[str], audience_type: list[str],
-                 source: str, source_url: str | None, record_type: str, scraper: str,
-                 notes: str, access_level: str, dataset: str, allowed_roles: list[str]) -> dict:
+def build_record(
+    *,
+    title: str,
+    date: str,
+    start_time: str | None,
+    end_time: str | None,
+    location_name: str,
+    categories: list[str],
+    audience_type: list[str],
+    filter: str,
+    source: str,
+    source_url: str | None,
+    record_type: str,
+    scraper: str,
+    notes: str,
+    access_level: str,
+    dataset: str,
+    allowed_roles: list[str],
+) -> dict:
     return {
         "title": title,
         "date": date,
-        "day": day_name_from_date_str(date),
+        "day_name": day_name_from_date_str(date),
         "start_time": start_time or None,
         "end_time": end_time or None,
         "location_name": location_name,
         "location": build_location_object(location_name),
         "categories": categories,
         "audience_type": audience_type,
+        "filter": filter,
         "source": source,
         "source_url": source_url,
         "type": record_type,
@@ -180,9 +197,18 @@ def build_dataset_payload(records: list[dict]) -> dict:
     }
 
 
-def build_run_log(*, started_at: str, finished_at: str, status: str, records_uploaded: int,
-                  raw_key: str | None, latest_key: str | None, selected_files: list[str],
-                  local_output_path: str | None, error: str | None = None) -> dict:
+def build_run_log(
+    *,
+    started_at: str,
+    finished_at: str,
+    status: str,
+    records_uploaded: int,
+    raw_key: str | None,
+    latest_key: str | None,
+    selected_files: list[str],
+    local_output_path: str | None,
+    error: str | None = None,
+) -> dict:
     return {
         "scraper": SCRAPER_NAME,
         "dataset": DATASET,
@@ -580,6 +606,7 @@ def swmg_pdf_to_records(pdf_path: Path) -> list[dict]:
                 location_name=location_name,
                 categories=header_categories(clean_str(r.get("event_header"))),
                 audience_type=header_audience_type(clean_str(r.get("event_header"))),
+                filter=FILTER_LABEL,
                 source=SOURCE_NAME,
                 source_url=SOURCE_URL,
                 record_type=RECORD_TYPE,

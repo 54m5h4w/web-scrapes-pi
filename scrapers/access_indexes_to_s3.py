@@ -215,6 +215,7 @@ def normalise_record(record: dict, payload: dict, source_key: str, access_level:
         "location": record.get("location"),
         "categories": safe_list(record.get("categories")),
         "audience_type": safe_list(record.get("audience_type")),
+        "filter": record.get("filter"),
         "source": source,
         "source_url": record.get("source_url"),
         "type": record.get("type") or payload.get("type"),

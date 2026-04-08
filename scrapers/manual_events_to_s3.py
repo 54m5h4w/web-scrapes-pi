@@ -232,6 +232,7 @@ def build_event_records(parsed_rows: list[dict], sheet_source_url: str) -> tuple
 
             category = clean(row.get("category")) or DEFAULT_CATEGORY
             audience = parse_list_cell(row.get("audience", ""), default=DEFAULT_AUDIENCE)
+            filter_value = clean(row.get("filter", ""))
             notes = clean(row.get("notes", ""))
             source_url = clean(row.get("source_url")) or None
             location_value = clean(row.get("location", ""))
@@ -259,6 +260,7 @@ def build_event_records(parsed_rows: list[dict], sheet_source_url: str) -> tuple
                 location=location_obj,
                 categories=[category],
                 audience_type=audience,
+                filter=filter_value or "Manual",
                 source=SOURCE_NAME,
                 source_url=source_url,
                 record_type=RECORD_TYPE,

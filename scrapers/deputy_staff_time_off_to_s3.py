@@ -27,6 +27,7 @@ RECORD_TYPE = "staff_leave"
 SCRAPER_NAME = "deputy-staff-leave-v1"
 SOURCE_NAME = "Deputy"
 SOURCE_URL = None
+FILTER_LABEL = "Key Staff Availability"
 
 EMPLOYEE_QUERY_URL = f"https://{INSTALL}.deputy.com/api/v1/resource/Employee/QUERY"
 LEAVE_QUERY_URL = f"https://{INSTALL}.deputy.com/api/v1/resource/Leave/QUERY"
@@ -218,27 +219,28 @@ def build_leave_records(employees: list[dict]) -> list[dict]:
                     continue
                 seen.add(key)
 
-                rows.append(
-                    build_record(
-                        title=f"{full_name} Annual Leave",
-                        date=day_str,
-                        day_name=day_name_from_date_str(day_str),
-                        start_time=None,
-                        end_time=None,
-                        location_name=location_name,
-                        location=location_obj,
-                        categories=["Staff Time Off"],
-                        audience_type=["Internal", "Staffing"],
-                        source=SOURCE_NAME,
-                        source_url=SOURCE_URL,
-                        record_type=RECORD_TYPE,
-                        scraper=SCRAPER_NAME,
-                        notes="",
-                        access_level=ACCESS_LEVEL,
-                        dataset=DATASET,
-                        allowed_roles=ALLOWED_ROLES,
-                    )
+            rows.append(
+                build_record(
+                    title=f"{full_name} Annual Leave",
+                    date=day_str,
+                    day_name=day_name_from_date_str(day_str),
+                    start_time=None,
+                    end_time=None,
+                    location_name=location_name,
+                    location=location_obj,
+                    categories=["Staff Time Off"],
+                    audience_type=["Internal", "Staffing"],
+                    filter=FILTER_LABEL,
+                    source=SOURCE_NAME,
+                    source_url=SOURCE_URL,
+                    record_type=RECORD_TYPE,
+                    scraper=SCRAPER_NAME,
+                    notes="",
+                    access_level=ACCESS_LEVEL,
+                    dataset=DATASET,
+                    allowed_roles=ALLOWED_ROLES,
                 )
+            )
 
     rows.sort(key=lambda r: (r["date"], r["title"]))
     logger.info(f"Built {len(rows)} leave records")
