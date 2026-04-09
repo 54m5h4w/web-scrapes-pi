@@ -299,16 +299,68 @@ def build_event_records(parsed_rows: list[dict]) -> list[dict]:
 
 
 def dedupe_rows(rows: list[dict]) -> list[dict]:
-    seen = set()
-    deduped = []
+    """
+    Deduplicate Melbourne Park rows while preferring the real event page link
+    over the generic Melbourne Park events listing URL.
+
+    Current issue:
+    - same event/date/location can appear twice
+    - one row has the true venue/event URL
+    - the other has SOURCE_URL fallback
+    - old dedupe used source_url inside the key, so both survived
+
+    This helper:
+    - dedupes by title/date/time/location
+    - keeps the row with the better source_url
+    """
+
+    def norm_text(value: str | None) -> str:
+        return clean_text(value).casefold()
+
+    def dedupe_key(row: dict) -> tuple:
+        return (
+            norm_text(row.get("title")),
+            row.get("date") or "",
+            row.get("start_time") or "",
+            row.get("end_time") or "",
+            norm_text(row.get("location_name")),
+        )
+
+    def score_row(row: dict) -> tuple:
+        """
+        Higher score wins.
+
+        Priority:
+        1. real event link beats fallback SOURCE_URL
+        2. absolute http link beats blank/non-http
+        3. longer notes as a light tie-breaker
+        """
+        source_url = (row.get("source_url") or "").strip()
+        is_real_event_link = bool(source_url and source_url != SOURCE_URL)
+        is_absolute_http = source_url.startswith("http")
+        notes_len = len((row.get("notes") or "").strip())
+
+        return (
+            1 if is_real_event_link else 0,
+            1 if is_absolute_http else 0,
+            notes_len,
+        )
+
+    best_by_key: dict[tuple, dict] = {}
 
     for row in rows:
-        key = (row["title"], row["date"], row["location_name"], row.get("source_url", ""))
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(row)
+        key = dedupe_key(row)
+        existing = best_by_key.get(key)
 
+        if existing is None:
+            best_by_key[key] = row
+            continue
+
+        if score_row(row) > score_row(existing):
+            best_by_key[key] = row
+
+    deduped = list(best_by_key.values())
+    deduped.sort(key=lambda r: (r["date"], r.get("start_time") or "", r["title"]))
     return deduped
 
 
