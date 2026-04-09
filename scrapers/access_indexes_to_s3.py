@@ -22,9 +22,10 @@ SOURCE_NAME = "Aggregator"
 SOURCE_URL = None
 CLOUDFRONT_DISTRIBUTION_ID = os.getenv("CLOUDFRONT_DISTRIBUTION_ID", "E6R69V6ZSXCW1").strip()
 
-TARGET_ACCESS_LEVELS = ["public", "restricted"]
+TARGET_ACCESS_LEVELS = ["public", "internal", "restricted"]
 EXCLUDED_LATEST_FILENAMES = {
     "public-events-index.json",
+    "internal-events-index.json",
     "restricted-events-index.json",
     "access-indexes.json",
     "master.json",
@@ -32,11 +33,17 @@ EXCLUDED_LATEST_FILENAMES = {
 
 # Optional overrides:
 # export AGGREGATOR_INCLUDE_PUBLIC_DATASETS=mcg-events,mcec-events,eventbrite-events
+# export AGGREGATOR_INCLUDE_INTERNAL_DATASETS=pipeline-internal-events
 # export AGGREGATOR_INCLUDE_RESTRICTED_DATASETS=staff-time-off
 INCLUDE_BY_ACCESS = {
     "public": {
         value.strip()
         for value in os.getenv("AGGREGATOR_INCLUDE_PUBLIC_DATASETS", "").split(",")
+        if value.strip()
+    },
+    "internal": {
+        value.strip()
+        for value in os.getenv("AGGREGATOR_INCLUDE_INTERNAL_DATASETS", "").split(",")
         if value.strip()
     },
     "restricted": {
@@ -46,16 +53,19 @@ INCLUDE_BY_ACCESS = {
     },
 }
 
-# Future-only applies to event-like data. For restricted data such as time-off,
-# leave this false so the restricted master includes all records unless the dataset
-# itself already filters them.
+# Future-only applies to event-like data.
+# Public UI is future-dated only.
+# Internal functions/events should also be future-dated only.
+# Restricted data such as time-off should keep full dataset unless filtered upstream.
 FUTURE_ONLY_BY_ACCESS = {
     "public": True,
+    "internal": True,
     "restricted": False,
 }
 
 DEFAULT_ALLOWED_ROLES_BY_ACCESS = {
     "public": ["staff", "supervisor", "manager", "admin"],
+    "internal": ["supervisor", "manager", "admin"],
     "restricted": ["manager", "admin"],
 }
 
@@ -184,7 +194,7 @@ def record_passes_time_filter(record: dict, access_level: str) -> bool:
         return True
 
     # Keep records with no date only if you later decide to surface undated items.
-    # For now public UI is future-dated only.
+    # For now public/internal UI is future-dated only.
     return is_today_or_future(record.get("date"))
 
 
@@ -202,7 +212,11 @@ def normalise_record(record: dict, payload: dict, source_key: str, access_level:
     dataset = payload.get("dataset") or "unknown-dataset"
     source = record.get("source") or payload.get("source") or SOURCE_NAME
     record_access = record.get("access", {}) if isinstance(record.get("access"), dict) else {}
-    allowed_roles = safe_list(record_access.get("allowed_roles")) or safe_list(payload.get("allowed_roles")) or DEFAULT_ALLOWED_ROLES_BY_ACCESS.get(access_level, [])
+    allowed_roles = (
+        safe_list(record_access.get("allowed_roles"))
+        or safe_list(payload.get("allowed_roles"))
+        or DEFAULT_ALLOWED_ROLES_BY_ACCESS.get(access_level, [])
+    )
     resolved_access_level = record_access.get("level") or payload.get("access_level") or access_level
 
     return {
@@ -281,7 +295,8 @@ def build_run_log(*, started_at: str, finished_at: str, status: str, access_summ
         "access_summaries": access_summaries,
         "error": error,
     }
-    
+
+
 def invalidate_cloudfront(paths: list[str] | None = None) -> dict | None:
     if not CLOUDFRONT_DISTRIBUTION_ID:
         logger.warning("No CLOUDFRONT_DISTRIBUTION_ID set — skipping CloudFront invalidation")
@@ -290,6 +305,7 @@ def invalidate_cloudfront(paths: list[str] | None = None) -> dict | None:
     if not paths:
         paths = [
             "/public/index/*",
+            "/internal/index/*",
             "/restricted/index/*",
         ]
 
