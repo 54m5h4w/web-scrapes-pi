@@ -7,17 +7,16 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 from dateutil import parser as dateparser
-from selenium import webdriver
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.chrome.service import Service
 
 from common.aws import get_s3_client
 from common.logging_utils import get_logger
 from common.s3_paths import utc_iso, build_latest_key, build_log_key, build_raw_key
 from common.schema import build_dataset_payload, build_record, build_run_log
+from common.selenium_utils import build_chrome_driver
 
 
 # =========================
@@ -48,11 +47,15 @@ LOCATION_OBJECT = {
 DEFAULT_AUDIENCE = ["Public"]
 DEFAULT_CATEGORY = "Public Event"
 
-# Optional tuning
 MAX_LOAD_MORE_CLICKS = int(os.getenv("MARVEL_MAX_LOAD_MORE_CLICKS", "50"))
 PAGE_LOAD_SLEEP_SECONDS = float(os.getenv("MARVEL_PAGE_LOAD_SLEEP_SECONDS", "3"))
 RENDER_SLEEP_SECONDS = float(os.getenv("MARVEL_RENDER_SLEEP_SECONDS", "1.2"))
-SELENIUM_HEADLESS = os.getenv("SELENIUM_HEADLESS", "true").strip().lower() in {"1", "true", "yes", "y"}
+MARVEL_PAGELOAD_TIMEOUT = int(os.getenv("MARVEL_PAGELOAD_TIMEOUT", "90"))
+
+UA = os.getenv(
+    "MARVEL_USER_AGENT",
+    "Mozilla/5.0 (X11; Linux armv7l) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+)
 
 
 # =========================
@@ -74,29 +77,23 @@ LOAD_MORE_XPATHS = [
 ]
 
 
-def build_driver() -> webdriver.Chrome:
-    options = webdriver.ChromeOptions()
-    if SELENIUM_HEADLESS:
-        options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1600,2200")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--lang=en-AU")
-    options.binary_location = "/usr/bin/chromium"
-
-    service = Service("/usr/bin/chromedriver")
-    return webdriver.Chrome(service=service, options=options)
+def build_driver():
+    driver = build_chrome_driver(
+        user_agent=UA,
+        extra_args=[
+            "--disable-blink-features=AutomationControlled",
+        ],
+    )
+    driver.set_page_load_timeout(MARVEL_PAGELOAD_TIMEOUT)
+    return driver
 
 
 # =========================
 # HELPERS
 # =========================
 
-
 def day_name_from_date_str(date_str: str) -> str:
     return datetime.strptime(date_str, "%Y-%m-%d").strftime("%A")
-
 
 
 def parse_date_and_time(summary: str) -> tuple[str | None, str | None]:
@@ -157,7 +154,6 @@ def parse_date_and_time(summary: str) -> tuple[str | None, str | None]:
         return None, time_24
 
 
-
 def infer_end_time(tag: str, start_time: str | None) -> str | None:
     if not start_time:
         return None
@@ -177,7 +173,6 @@ def infer_end_time(tag: str, start_time: str | None) -> str | None:
         return None
 
 
-
 def build_notes(event: dict) -> str:
     parts = []
     if event.get("summary"):
@@ -191,8 +186,7 @@ def build_notes(event: dict) -> str:
 # SCRAPING
 # =========================
 
-
-def click_load_more_until_gone(driver: webdriver.Chrome, max_clicks: int = MAX_LOAD_MORE_CLICKS) -> int:
+def click_load_more_until_gone(driver, max_clicks: int = MAX_LOAD_MORE_CLICKS) -> int:
     clicks = 0
     while clicks < max_clicks:
         found = None
@@ -224,7 +218,6 @@ def click_load_more_until_gone(driver: webdriver.Chrome, max_clicks: int = MAX_L
     return clicks
 
 
-
 def fetch_events_page_html() -> tuple[str, int]:
     driver = build_driver()
     try:
@@ -236,7 +229,6 @@ def fetch_events_page_html() -> tuple[str, int]:
         return html, clicks
     finally:
         driver.quit()
-
 
 
 def parse_events_from_html(html: str) -> list[dict]:
@@ -288,7 +280,6 @@ def parse_events_from_html(html: str) -> list[dict]:
 # RECORD BUILDING
 # =========================
 
-
 def build_event_records(events: list[dict]) -> tuple[list[dict], int]:
     records = []
     skipped_missing_date = 0
@@ -335,7 +326,6 @@ def build_event_records(events: list[dict]) -> tuple[list[dict], int]:
     return records, skipped_missing_date
 
 
-
 def build_payload(records: list[dict]) -> dict:
     return build_dataset_payload(
         dataset=DATASET,
@@ -353,7 +343,6 @@ def build_payload(records: list[dict]) -> dict:
 # S3 OUTPUT
 # =========================
 
-
 def upload_json_to_s3(key: str, payload: dict) -> None:
     s3.put_object(
         Bucket=S3_BUCKET,
@@ -361,7 +350,6 @@ def upload_json_to_s3(key: str, payload: dict) -> None:
         Body=json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
         ContentType="application/json",
     )
-
 
 
 def upload_payload(payload: dict) -> dict:
@@ -379,7 +367,6 @@ def upload_payload(payload: dict) -> dict:
     }
 
 
-
 def upload_run_log_to_s3(run_log: dict) -> str:
     log_key = build_log_key(ACCESS_LEVEL, DATASET)
     upload_json_to_s3(log_key, run_log)
@@ -389,7 +376,6 @@ def upload_run_log_to_s3(run_log: dict) -> str:
 # =========================
 # MAIN
 # =========================
-
 
 def main() -> None:
     started_at = utc_iso()
