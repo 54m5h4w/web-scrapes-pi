@@ -102,8 +102,22 @@ Each record follows a standard structure including:
 * Source and scraper metadata
 * Access control object
 
-See `docs/schema_reference.md` for full schema.
+The access model now supports both:
 
+* role-based access
+* venue-based access
+
+This means visibility can be restricted by user role and by venue scope.
+
+Example access object:
+
+```json
+"access": {
+  "level": "public",
+  "dataset": "mcec-events",
+  "allowed_roles": ["staff", "supervisor", "manager", "admin"],
+  "allowed_venues": ["ALL"]
+}
 ---
 
 ## Deployment Workflow
@@ -286,6 +300,7 @@ Do NOT have multiple scrapers write directly to the same `public-events` dataset
 * Separation of raw vs latest data
 * Structured logging for every run
 * Access control embedded in data
+* Access control supports both role and venue entitlement
 * Minimal duplication via shared utilities
 * Browser-based scrapers must be portable across local and Pi environments
 
@@ -299,3 +314,64 @@ Do NOT have multiple scrapers write directly to the same `public-events` dataset
 * Role-based access control
 * Data analytics and reporting
 * Shared Selenium/browser helpers in `common/`
+
+## Access Model
+
+Access is controlled at two levels:
+
+1. **Access level**
+   * `public`
+   * `internal`
+   * `restricted`
+
+2. **Access entitlement**
+   * `allowed_roles`
+   * `allowed_venues`
+
+### Roles
+
+Typical role values include:
+
+* `staff`
+* `supervisor`
+* `manager`
+* `admin`
+
+### Venues
+
+Current venue values:
+
+* `BP`
+* `P5`
+* `HATF`
+* `ALL`
+
+### User access example
+
+A user record may look like:
+
+```json
+{
+  "username": "sam",
+  "role": "admin",
+  "venue": "ALL",
+  "display_name": "Sam"
+}
+
+A venue-specific user may look like:
+
+{
+  "username": "hatf_staff",
+  "role": "staff",
+  "venue": "HATF",
+  "display_name": "HATF Staff"
+}
+
+A multi-venue user may look like:
+
+{
+  "username": "ops_manager",
+  "role": "manager",
+  "venue": ["P5", "BP"],
+  "display_name": "Operations Manager"
+}

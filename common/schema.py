@@ -1,6 +1,30 @@
 from common.s3_paths import utc_iso
 
 
+def _normalise_venues(value) -> list[str]:
+    """
+    Accepts:
+    - "ALL"
+    - "HATF"
+    - ["BP", "P5"]
+    - None
+
+    Always returns a clean list[str].
+    """
+    if value is None:
+        return ["ALL"]
+
+    if isinstance(value, str):
+        value = value.strip()
+        return [value] if value else ["ALL"]
+
+    if isinstance(value, list):
+        cleaned = [str(v).strip() for v in value if str(v).strip()]
+        return cleaned or ["ALL"]
+
+    return ["ALL"]
+
+
 def build_record(
     *,
     title: str,
@@ -21,6 +45,7 @@ def build_record(
     access_level: str,
     dataset: str,
     allowed_roles: list[str],
+    allowed_venues="ALL",
 ) -> dict:
     return {
         "title": title,
@@ -42,6 +67,7 @@ def build_record(
             "level": access_level,
             "dataset": dataset,
             "allowed_roles": allowed_roles,
+            "allowed_venues": _normalise_venues(allowed_venues),
         },
     }
 
@@ -56,6 +82,7 @@ def build_dataset_payload(
     access_level: str,
     allowed_roles: list[str],
     records: list[dict],
+    allowed_venues="ALL",
 ) -> dict:
     return {
         "dataset": dataset,
@@ -65,6 +92,7 @@ def build_dataset_payload(
         "scraper": scraper,
         "access_level": access_level,
         "allowed_roles": allowed_roles,
+        "allowed_venues": _normalise_venues(allowed_venues),
         "scraped_at": utc_iso(),
         "record_count": len(records),
         "records": records,
@@ -88,6 +116,7 @@ def build_run_log(
     raw_key=None,
     latest_key=None,
     error=None,
+    allowed_venues="ALL",
 ) -> dict:
     return {
         "scraper": scraper,
@@ -96,6 +125,7 @@ def build_run_log(
         "source": source,
         "access_level": access_level,
         "allowed_roles": allowed_roles,
+        "allowed_venues": _normalise_venues(allowed_venues),
         "status": status,
         "started_at": started_at,
         "finished_at": finished_at,

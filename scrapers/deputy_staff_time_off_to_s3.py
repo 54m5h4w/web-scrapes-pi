@@ -23,6 +23,7 @@ S3_BUCKET = os.getenv("S3_BUCKET", "event-scrape-data")
 DATASET = "staff-time-off"
 ACCESS_LEVEL = "restricted"
 ALLOWED_ROLES = ["manager", "admin"]
+ALLOWED_VENUES = ["ALL"]  # dataset-level wrapper; individual records override this
 RECORD_TYPE = "staff_leave"
 SCRAPER_NAME = "deputy-staff-leave-v1"
 SOURCE_NAME = "Deputy"
@@ -67,14 +68,25 @@ s3 = get_s3_client(logger=logger)
 def iso_to_date(iso_str: str) -> date:
     return datetime.fromisoformat(iso_str).date()
 
+
 def daterange_inclusive(d1: date, d2: date):
     cur = d1
     while cur <= d2:
         yield cur
         cur += timedelta(days=1)
 
+
 def day_name_from_date_str(date_str: str) -> str:
     return datetime.strptime(date_str, "%Y-%m-%d").strftime("%A")
+
+
+def allowed_venues_for_location_code(location_code: str) -> list[str]:
+    code = (location_code or "").strip().upper()
+
+    if code in {"BP", "P5", "HATF", "ALL"}:
+        return [code]
+
+    return ["ALL"]
 
 
 # =========================
@@ -94,6 +106,7 @@ def employee_query(payload: dict) -> list[dict]:
     if not isinstance(data, list):
         raise RuntimeError(f"Unexpected response type from Deputy: {type(data)}")
     return data
+
 
 def fetch_all_employees() -> list[dict]:
     all_rows: list[dict] = []
@@ -119,6 +132,7 @@ def fetch_all_employees() -> list[dict]:
 
     dedup = {int(e["Id"]): e for e in all_rows if "Id" in e}
     return [dedup[k] for k in sorted(dedup.keys())]
+
 
 def get_future_leave(employee_id: int) -> list[dict]:
     now_ts = int(time.time())
@@ -181,6 +195,7 @@ def filtered_staff(employees: list[dict]) -> list[dict]:
         )
     ]
 
+
 def build_leave_records(employees: list[dict]) -> list[dict]:
     rows = []
     seen = set()
@@ -200,6 +215,7 @@ def build_leave_records(employees: list[dict]) -> list[dict]:
         location_code = resolve_location_code(emp)
         location_name = get_location_name(location_code)
         location_obj = build_location_object(location_code)
+        allowed_venues = allowed_venues_for_location_code(location_code)
 
         leave_records = get_future_leave(int(emp_id))
 
@@ -219,28 +235,29 @@ def build_leave_records(employees: list[dict]) -> list[dict]:
                     continue
                 seen.add(key)
 
-            rows.append(
-                build_record(
-                    title=f"{full_name} Annual Leave",
-                    date=day_str,
-                    day_name=day_name_from_date_str(day_str),
-                    start_time=None,
-                    end_time=None,
-                    location_name=location_name,
-                    location=location_obj,
-                    categories=["Staff Time Off"],
-                    audience_type=["Internal", "Staffing"],
-                    filter=FILTER_LABEL,
-                    source=SOURCE_NAME,
-                    source_url=SOURCE_URL,
-                    record_type=RECORD_TYPE,
-                    scraper=SCRAPER_NAME,
-                    notes="",
-                    access_level=ACCESS_LEVEL,
-                    dataset=DATASET,
-                    allowed_roles=ALLOWED_ROLES,
+                rows.append(
+                    build_record(
+                        title=f"{full_name} Annual Leave",
+                        date=day_str,
+                        day_name=day_name_from_date_str(day_str),
+                        start_time=None,
+                        end_time=None,
+                        location_name=location_name,
+                        location=location_obj,
+                        categories=["Staff Time Off"],
+                        audience_type=["Internal", "Staffing"],
+                        filter=FILTER_LABEL,
+                        source=SOURCE_NAME,
+                        source_url=SOURCE_URL,
+                        record_type=RECORD_TYPE,
+                        scraper=SCRAPER_NAME,
+                        notes="",
+                        access_level=ACCESS_LEVEL,
+                        dataset=DATASET,
+                        allowed_roles=ALLOWED_ROLES,
+                        allowed_venues=allowed_venues,
+                    )
                 )
-            )
 
     rows.sort(key=lambda r: (r["date"], r["title"]))
     logger.info(f"Built {len(rows)} leave records")
@@ -260,6 +277,7 @@ def build_payload(records: list[dict]) -> dict:
         scraper=SCRAPER_NAME,
         access_level=ACCESS_LEVEL,
         allowed_roles=ALLOWED_ROLES,
+        allowed_venues=ALLOWED_VENUES,
         records=records,
     )
 
@@ -276,6 +294,7 @@ def upload_json_to_s3(key: str, payload: dict) -> None:
         ContentType="application/json",
     )
 
+
 def upload_payload(payload: dict) -> dict:
     raw_key = build_raw_key(ACCESS_LEVEL, DATASET)
     latest_key = build_latest_key(ACCESS_LEVEL, DATASET)
@@ -289,6 +308,7 @@ def upload_payload(payload: dict) -> dict:
         "latest_key": latest_key,
         "record_count": payload["record_count"],
     }
+
 
 def upload_run_log_to_s3(run_log: dict) -> str:
     log_key = build_log_key(ACCESS_LEVEL, DATASET)
@@ -333,6 +353,7 @@ def main():
             source=SOURCE_NAME,
             access_level=ACCESS_LEVEL,
             allowed_roles=ALLOWED_ROLES,
+            allowed_venues=ALLOWED_VENUES,
             s3_bucket=S3_BUCKET,
             started_at=started_at,
             finished_at=finished_at,
@@ -370,6 +391,7 @@ def main():
                 source=SOURCE_NAME,
                 access_level=ACCESS_LEVEL,
                 allowed_roles=ALLOWED_ROLES,
+                allowed_venues=ALLOWED_VENUES,
                 s3_bucket=S3_BUCKET,
                 started_at=started_at,
                 finished_at=finished_at,
