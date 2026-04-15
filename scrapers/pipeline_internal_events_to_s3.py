@@ -306,6 +306,8 @@ def build_event_records(parsed_rows: list[dict]) -> tuple[list[dict], list[dict]
                 continue
             seen.add(dedupe_key)
 
+            venue_code = resolve_venue_code(row.get("VENUE"))
+
             record = build_record(
                 title=title,
                 date=event_date,
@@ -325,7 +327,10 @@ def build_event_records(parsed_rows: list[dict]) -> tuple[list[dict], list[dict]
                 access_level=ACCESS_LEVEL,
                 dataset=DATASET,
                 allowed_roles=ALLOWED_ROLES,
+                allowed_venues=[venue_code],
             )
+
+            record["venue"] = venue_code
             records.append(record)
 
         except Exception as exc:
