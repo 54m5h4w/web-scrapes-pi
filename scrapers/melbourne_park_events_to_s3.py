@@ -18,8 +18,16 @@ from common.schema import build_dataset_payload, build_record, build_run_log
 
 BASE_URL = "https://www.melbournepark.com.au/events/"
 HTTP_HEADERS = {
-    "User-Agent": os.getenv("MP_USER_AGENT", "Mozilla/5.0"),
+    "User-Agent": os.getenv(
+        "MP_USER_AGENT",
+        "Mozilla/5.0 (X11; Linux armv7l) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-AU,en;q=0.9",
     "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+    "Upgrade-Insecure-Requests": "1",
+    "Referer": "https://www.melbournepark.com.au/",
 }
 REQUEST_TIMEOUT = int(os.getenv("MP_REQUEST_TIMEOUT", "30"))
 MAX_PAGES = int(os.getenv("MP_MAX_PAGES", "20"))
@@ -191,7 +199,24 @@ def build_location_object(location_name: str) -> dict:
 
 def fetch_page(page: int) -> str:
     url = BASE_URL if page == 1 else f"{BASE_URL}?sf_paged={page}"
-    response = requests.get(url, headers=HTTP_HEADERS, timeout=REQUEST_TIMEOUT)
+
+    session = requests.Session()
+    session.headers.update(HTTP_HEADERS)
+
+    response = session.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True)
+
+    logger.info(
+        "Melbourne Park fetch | page=%s status=%s url=%s content_type=%s",
+        page,
+        response.status_code,
+        response.url,
+        response.headers.get("content-type", ""),
+    )
+
+    if response.status_code == 403:
+        snippet = response.text[:500].replace("\n", " ")
+        raise RuntimeError(f"Melbourne Park returned 403 Forbidden. Body starts: {snippet}")
+
     response.raise_for_status()
     return response.text
 
