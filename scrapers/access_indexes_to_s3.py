@@ -69,6 +69,12 @@ DEFAULT_ALLOWED_ROLES_BY_ACCESS = {
     "restricted": ["manager", "admin"],
 }
 
+DEFAULT_ALLOWED_VENUES_BY_ACCESS = {
+    "public": ["ALL"],
+    "internal": ["ALL"],
+    "restricted": ["ALL"],
+}
+
 
 # =========================
 # LOGGING / AWS
@@ -82,13 +88,11 @@ s3 = get_s3_client(logger=logger)
 # HELPERS
 # =========================
 
-
 def dataset_to_label(dataset: str) -> str:
     parts = [p for p in (dataset or "").split("-") if p]
     if not parts:
         return "Unknown Dataset"
     return " ".join(part.upper() if len(part) <= 4 else part.capitalize() for part in parts)
-
 
 
 def parse_iso_date(value: str | None) -> date | None:
@@ -100,16 +104,23 @@ def parse_iso_date(value: str | None) -> date | None:
         return None
 
 
-
 def is_today_or_future(value: str | None) -> bool:
     parsed = parse_iso_date(value)
     return bool(parsed and parsed >= date.today())
 
 
-
 def safe_list(value: Any) -> list:
     return value if isinstance(value, list) else []
 
+
+def safe_allowed_venues(value: Any) -> list[str]:
+    if isinstance(value, list):
+        cleaned = [str(v).strip() for v in value if str(v).strip()]
+        return cleaned or ["ALL"]
+    if isinstance(value, str):
+        value = value.strip()
+        return [value] if value else ["ALL"]
+    return ["ALL"]
 
 
 def sort_key(record: dict) -> tuple:
@@ -119,7 +130,6 @@ def sort_key(record: dict) -> tuple:
         record.get("title") or "",
         record.get("location_name") or "",
     )
-
 
 
 def dedupe_key(record: dict) -> tuple:
@@ -134,12 +144,10 @@ def dedupe_key(record: dict) -> tuple:
     )
 
 
-
 def get_json_from_s3(key: str) -> dict:
     response = s3.get_object(Bucket=S3_BUCKET, Key=key)
     body = response["Body"].read().decode("utf-8")
     return json.loads(body)
-
 
 
 def list_latest_keys_for_access(access_level: str) -> list[str]:
@@ -181,12 +189,10 @@ def list_latest_keys_for_access(access_level: str) -> list[str]:
     return keys
 
 
-
 def record_passes_access_filter(record: dict, payload: dict, access_level: str) -> bool:
     record_access = record.get("access", {}) if isinstance(record.get("access"), dict) else {}
     resolved_level = record_access.get("level") or payload.get("access_level") or access_level
     return resolved_level == access_level
-
 
 
 def record_passes_time_filter(record: dict, access_level: str) -> bool:
@@ -196,7 +202,6 @@ def record_passes_time_filter(record: dict, access_level: str) -> bool:
     # Keep records with no date only if you later decide to surface undated items.
     # For now public/internal UI is future-dated only.
     return is_today_or_future(record.get("date"))
-
 
 
 def normalise_record(record: dict, payload: dict, source_key: str, access_level: str) -> dict | None:
@@ -212,10 +217,16 @@ def normalise_record(record: dict, payload: dict, source_key: str, access_level:
     dataset = payload.get("dataset") or "unknown-dataset"
     source = record.get("source") or payload.get("source") or SOURCE_NAME
     record_access = record.get("access", {}) if isinstance(record.get("access"), dict) else {}
+
     allowed_roles = (
         safe_list(record_access.get("allowed_roles"))
         or safe_list(payload.get("allowed_roles"))
         or DEFAULT_ALLOWED_ROLES_BY_ACCESS.get(access_level, [])
+    )
+    allowed_venues = (
+        safe_allowed_venues(record_access.get("allowed_venues"))
+        or safe_allowed_venues(payload.get("allowed_venues"))
+        or DEFAULT_ALLOWED_VENUES_BY_ACCESS.get(access_level, ["ALL"])
     )
     resolved_access_level = record_access.get("level") or payload.get("access_level") or access_level
 
@@ -243,9 +254,9 @@ def normalise_record(record: dict, payload: dict, source_key: str, access_level:
             "level": resolved_access_level,
             "dataset": dataset,
             "allowed_roles": allowed_roles,
+            "allowed_venues": allowed_venues,
         },
     }
-
 
 
 def build_master_payload(access_level: str, records: list[dict], datasets: list[dict], source_keys: list[str]) -> dict:
@@ -257,6 +268,7 @@ def build_master_payload(access_level: str, records: list[dict], datasets: list[
         "scraper": SCRAPER_NAME,
         "access_level": access_level,
         "allowed_roles": DEFAULT_ALLOWED_ROLES_BY_ACCESS.get(access_level, []),
+        "allowed_venues": DEFAULT_ALLOWED_VENUES_BY_ACCESS.get(access_level, ["ALL"]),
         "scraped_at": utc_iso(),
         "record_count": len(records),
         "dataset_count": len(datasets),
@@ -264,7 +276,6 @@ def build_master_payload(access_level: str, records: list[dict], datasets: list[
         "source_keys": source_keys,
         "records": records,
     }
-
 
 
 def build_datasets_payload(access_level: str, datasets: list[dict]) -> dict:
@@ -276,11 +287,11 @@ def build_datasets_payload(access_level: str, datasets: list[dict]) -> dict:
         "scraper": SCRAPER_NAME,
         "access_level": access_level,
         "allowed_roles": DEFAULT_ALLOWED_ROLES_BY_ACCESS.get(access_level, []),
+        "allowed_venues": DEFAULT_ALLOWED_VENUES_BY_ACCESS.get(access_level, ["ALL"]),
         "scraped_at": utc_iso(),
         "dataset_count": len(datasets),
         "datasets": datasets,
     }
-
 
 
 def build_run_log(*, started_at: str, finished_at: str, status: str, access_summaries: list[dict], error: str | None) -> dict:
@@ -341,7 +352,6 @@ def invalidate_cloudfront(paths: list[str] | None = None) -> dict | None:
 # AGGREGATION
 # =========================
 
-
 def aggregate_access_level(access_level: str) -> tuple[list[dict], list[dict], list[str]]:
     latest_keys = list_latest_keys_for_access(access_level)
     logger.info("Found %s latest dataset files for %s", len(latest_keys), access_level)
@@ -356,6 +366,7 @@ def aggregate_access_level(access_level: str) -> tuple[list[dict], list[dict], l
         dataset = payload.get("dataset") or key.rsplit("/", 1)[-1].replace(".json", "")
         records = safe_list(payload.get("records"))
         allowed_roles = safe_list(payload.get("allowed_roles")) or DEFAULT_ALLOWED_ROLES_BY_ACCESS.get(access_level, [])
+        allowed_venues = safe_allowed_venues(payload.get("allowed_venues"))
 
         kept_for_dataset = 0
         for record in records:
@@ -379,6 +390,7 @@ def aggregate_access_level(access_level: str) -> tuple[list[dict], list[dict], l
                 "source_url": payload.get("source_url"),
                 "access_level": access_level,
                 "allowed_roles": allowed_roles,
+                "allowed_venues": allowed_venues,
                 "scraped_at": payload.get("scraped_at"),
                 "latest_key": key,
                 "record_count": kept_for_dataset,
@@ -394,7 +406,6 @@ def aggregate_access_level(access_level: str) -> tuple[list[dict], list[dict], l
 # S3 OUTPUT
 # =========================
 
-
 def upload_json_to_s3(key: str, payload: dict) -> None:
     s3.put_object(
         Bucket=S3_BUCKET,
@@ -402,7 +413,6 @@ def upload_json_to_s3(key: str, payload: dict) -> None:
         Body=json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
         ContentType="application/json",
     )
-
 
 
 def write_access_outputs(access_level: str, master_payload: dict, datasets_payload: dict) -> dict:
@@ -429,7 +439,6 @@ def write_access_outputs(access_level: str, master_payload: dict, datasets_paylo
 # MAIN
 # =========================
 
-
 def main() -> None:
     started_at = utc_iso()
     summaries: list[dict] = []
@@ -446,6 +455,8 @@ def main() -> None:
             summaries.append(
                 {
                     "access_level": access_level,
+                    "allowed_roles": DEFAULT_ALLOWED_ROLES_BY_ACCESS.get(access_level, []),
+                    "allowed_venues": DEFAULT_ALLOWED_VENUES_BY_ACCESS.get(access_level, ["ALL"]),
                     "latest_files_found": len(latest_keys),
                     "datasets_aggregated": len(datasets),
                     "records_uploaded": len(records),
