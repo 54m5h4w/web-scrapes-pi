@@ -160,7 +160,11 @@ def parse_location_venue(line: str) -> tuple[str, str]:
 def keep_event(location: str, venue: str) -> bool:
     loc = (location or "").lower().strip()
     v = (venue or "").lower()
-    return loc == "south wharf" or ("crown" in v) or ("seafarers" in v)
+    return (
+        loc in {"south wharf", "southbank"}
+        or ("crown" in v)
+        or ("seafarers" in v)
+    )
 
 
 def split_date_time_and_more(line: str) -> tuple[str, str, bool]:
@@ -259,10 +263,10 @@ def find_next_search_button(driver):
     return None
 
 
-def apply_neighborhood_southbank(driver, wait) -> None:
+def find_neighbourhood_checkbox(driver, wait):
     """
-    Expand the Neighbourhood filter and tick Southbank.
-    Eventbrite uses British spelling in this UI: neighbourhood.
+    Prefer South Wharf if available.
+    Fall back to Southbank if that's the only neighbourhood option exposed.
     """
     wait.until(
         EC.presence_of_element_located(
@@ -271,13 +275,18 @@ def apply_neighborhood_southbank(driver, wait) -> None:
     )
     time.sleep(0.8)
 
-    def _js_click(elem) -> None:
-        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", elem)
-        time.sleep(0.2)
-        driver.execute_script("arguments[0].click();", elem)
-        time.sleep(0.8)
+    def _try_selector(selector: str):
+        try:
+            return driver.find_element(By.CSS_SELECTOR, selector)
+        except Exception:
+            return None
 
-    # Expand "View more" inside the Neighbourhood section if present.
+    def _try_xpath(xpath: str):
+        try:
+            return driver.find_element(By.XPATH, xpath)
+        except Exception:
+            return None
+
     try:
         view_more = wait.until(
             EC.element_to_be_clickable((
@@ -287,28 +296,77 @@ def apply_neighborhood_southbank(driver, wait) -> None:
             ))
         )
         if view_more.is_displayed() and view_more.is_enabled():
-            _js_click(view_more)
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", view_more)
+            time.sleep(0.2)
+            driver.execute_script("arguments[0].click();", view_more)
+            time.sleep(1.0)
     except Exception:
-        # Already expanded or not present in this render.
         pass
 
-    checkbox = wait.until(
-        EC.presence_of_element_located((
-            By.CSS_SELECTOR,
-            'input[data-testid="filter-display-Southbank"]'
-        ))
+    candidates = [
+        _try_selector('input[data-testid="filter-display-South Wharf"]'),
+        _try_selector('input[data-testid="filter-display-SouthWharf"]'),
+        _try_xpath("//input[contains(@data-testid,'South Wharf')]"),
+        _try_xpath("//label[contains(., 'South Wharf')]//input"),
+        _try_xpath("//span[contains(., 'South Wharf')]/ancestor::label//input"),
+        _try_selector('input[data-testid="filter-display-Southbank"]'),
+        _try_xpath("//input[contains(@data-testid,'Southbank')]"),
+        _try_xpath("//label[contains(., 'Southbank')]//input"),
+        _try_xpath("//span[contains(., 'Southbank')]/ancestor::label//input"),
+    ]
+
+    for elem in candidates:
+        if elem is not None:
+            return elem
+
+    raise RuntimeError("Could not find South Wharf or Southbank neighbourhood checkbox")
+
+
+def apply_neighborhood_filter(driver, wait) -> str:
+    """
+    Apply neighbourhood filter and verify results changed before continuing.
+    Returns the filter label that was actually targeted.
+    """
+    checkbox = find_neighbourhood_checkbox(driver, wait)
+
+    filter_name = (
+        checkbox.get_attribute("data-testid")
+        or checkbox.get_attribute("value")
+        or "neighbourhood"
     )
 
-    checked = (
-        checkbox.get_attribute("checked") is not None
-        or checkbox.is_selected()
-        or (checkbox.get_attribute("aria-checked") or "").lower() == "true"
-    )
+    def _is_checked(elem) -> bool:
+        try:
+            return (
+                elem.get_attribute("checked") is not None
+                or elem.is_selected()
+                or (elem.get_attribute("aria-checked") or "").lower() == "true"
+            )
+        except Exception:
+            return False
 
-    if not checked:
-        _js_click(checkbox)
+    before_cards = len(driver.find_elements(By.CSS_SELECTOR, "div.event-card"))
+    before_url = driver.current_url
+
+    if not _is_checked(checkbox):
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", checkbox)
+        time.sleep(0.2)
+        driver.execute_script("arguments[0].click();", checkbox)
+
+    wait.until(lambda d: _is_checked(checkbox))
+
+    try:
+        wait.until(
+            lambda d: (
+                d.current_url != before_url
+                or len(d.find_elements(By.CSS_SELECTOR, "div.event-card")) != before_cards
+            )
+        )
+    except Exception:
+        time.sleep(2.5)
 
     time.sleep(2.0)
+    return filter_name
 
 
 def load_more_results(driver, max_clicks: int = LOAD_MORE_CLICKS) -> int:
@@ -386,6 +444,8 @@ def scrape_search_results() -> tuple[list[dict], dict]:
         "pages_scraped": 0,
         "load_more_clicks": 0,
         "cards_seen": 0,
+        "page_signatures_repeated": 0,
+        "filter_applied": "",
     }
 
     try:
@@ -394,10 +454,13 @@ def scrape_search_results() -> tuple[list[dict], dict]:
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         time.sleep(PAGE_READY_SLEEP_SECONDS)
 
-        apply_neighborhood_southbank(driver, wait)
-        logger.info("Applied Southbank neighborhood filter")
+        applied_filter = apply_neighborhood_filter(driver, wait)
+        stats["filter_applied"] = applied_filter
+        logger.info(f"Applied neighbourhood filter: {applied_filter}")
 
         page_num = 1
+        seen_signatures = set()
+
         while True:
             wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.event-card")))
 
@@ -408,11 +471,29 @@ def scrape_search_results() -> tuple[list[dict], dict]:
             page_events = extract_events_on_current_page(driver)
             scraped_cards.extend(page_events)
 
+            signature = tuple(
+                sorted(
+                    (
+                        (item.get("title") or "").strip().lower(),
+                        (item.get("date_part") or "").strip().lower(),
+                        (item.get("location") or "").strip().lower(),
+                        (item.get("venue") or "").strip().lower(),
+                    )
+                    for item in page_events[:20]
+                )
+            )
+
             stats["pages_scraped"] += 1
             stats["cards_seen"] += final_card_count
             logger.info(
                 f"Eventbrite page {page_num}: cards={final_card_count}, extracted={len(page_events)}, load_more_clicks={lm_clicks}"
             )
+
+            if signature in seen_signatures:
+                stats["page_signatures_repeated"] += 1
+                logger.warning("Detected repeated Eventbrite result page signature; stopping pagination")
+                break
+            seen_signatures.add(signature)
 
             if page_num >= MAX_SEARCH_PAGES:
                 logger.warning(f"Reached EVENTBRITE_MAX_SEARCH_PAGES={MAX_SEARCH_PAGES}; stopping pagination")
