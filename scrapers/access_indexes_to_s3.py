@@ -1,9 +1,10 @@
 import json
 import os
-from datetime import date, datetime
-from typing import Any
-import boto3
 import time
+from datetime import date, datetime, timedelta, timezone
+from typing import Any
+
+import boto3
 
 from common.aws import get_s3_client
 from common.logging_utils import get_logger
@@ -74,6 +75,8 @@ DEFAULT_ALLOWED_VENUES_BY_ACCESS = {
     "internal": ["ALL"],
     "restricted": ["ALL"],
 }
+
+NEW_WINDOW_DAYS = int(os.getenv("AGGREGATOR_NEW_WINDOW_DAYS", "7"))
 
 
 # =========================
@@ -150,6 +153,14 @@ def get_json_from_s3(key: str) -> dict:
     return json.loads(body)
 
 
+def try_get_json_from_s3(key: str) -> dict | None:
+    try:
+        return get_json_from_s3(key)
+    except Exception as exc:
+        logger.info("Could not read existing JSON from %s: %s", key, exc)
+        return None
+
+
 def list_latest_keys_for_access(access_level: str) -> list[str]:
     prefix = f"{access_level}/latest/"
     include = INCLUDE_BY_ACCESS.get(access_level, set())
@@ -198,9 +209,6 @@ def record_passes_access_filter(record: dict, payload: dict, access_level: str) 
 def record_passes_time_filter(record: dict, access_level: str) -> bool:
     if not FUTURE_ONLY_BY_ACCESS.get(access_level, False):
         return True
-
-    # Keep records with no date only if you later decide to surface undated items.
-    # For now public/internal UI is future-dated only.
     return is_today_or_future(record.get("date"))
 
 
@@ -259,6 +267,90 @@ def normalise_record(record: dict, payload: dict, source_key: str, access_level:
     }
 
 
+def parse_utc_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def format_utc_datetime(value: datetime) -> str:
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def get_existing_master_key(access_level: str) -> str:
+    return f"{access_level}/index/master.json"
+
+
+def get_previous_record_lookup(access_level: str) -> dict[tuple, dict]:
+    master_key = get_existing_master_key(access_level)
+    payload = try_get_json_from_s3(master_key)
+    if not isinstance(payload, dict):
+        return {}
+
+    records = safe_list(payload.get("records"))
+    lookup: dict[tuple, dict] = {}
+
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        lookup[dedupe_key(record)] = record
+
+    logger.info(
+        "Loaded %s previous aggregated records from %s for newness tracking",
+        len(lookup),
+        master_key,
+    )
+    return lookup
+
+
+def apply_newness_flags(
+    access_level: str,
+    records: list[dict],
+    previous_lookup: dict[tuple, dict],
+    now_dt: datetime,
+) -> list[dict]:
+    updated: list[dict] = []
+    new_count = 0
+
+    for record in records:
+        key = dedupe_key(record)
+        previous = previous_lookup.get(key)
+
+        previous_first_seen = None
+        if isinstance(previous, dict):
+            previous_first_seen = parse_utc_datetime(previous.get("first_seen_at"))
+
+        # Bootstrap behavior:
+        # - if an old matching record has no first_seen_at, stamp it now
+        # - if it does have first_seen_at, keep it
+        # - if there is no old record, stamp it now
+        first_seen_dt = previous_first_seen or now_dt
+        new_until_dt = first_seen_dt + timedelta(days=NEW_WINDOW_DAYS)
+        is_new = now_dt <= new_until_dt
+
+        enriched = dict(record)
+        enriched["first_seen_at"] = format_utc_datetime(first_seen_dt)
+        enriched["new_until"] = format_utc_datetime(new_until_dt)
+        enriched["is_new"] = is_new
+
+        if is_new:
+            new_count += 1
+
+        updated.append(enriched)
+
+    logger.info(
+        "%s newness flags applied | total=%s currently_new=%s window_days=%s",
+        access_level,
+        len(updated),
+        new_count,
+        NEW_WINDOW_DAYS,
+    )
+    return updated
+
+
 def build_master_payload(access_level: str, records: list[dict], datasets: list[dict], source_keys: list[str]) -> dict:
     return {
         "dataset": f"{access_level}-events-index",
@@ -271,6 +363,7 @@ def build_master_payload(access_level: str, records: list[dict], datasets: list[
         "allowed_venues": DEFAULT_ALLOWED_VENUES_BY_ACCESS.get(access_level, ["ALL"]),
         "scraped_at": utc_iso(),
         "record_count": len(records),
+        "new_window_days": NEW_WINDOW_DAYS,
         "dataset_count": len(datasets),
         "datasets": datasets,
         "source_keys": source_keys,
@@ -303,6 +396,7 @@ def build_run_log(*, started_at: str, finished_at: str, status: str, access_summ
         "finished_at": finished_at,
         "status": status,
         "s3_bucket": S3_BUCKET,
+        "new_window_days": NEW_WINDOW_DAYS,
         "access_summaries": access_summaries,
         "error": error,
     }
@@ -352,7 +446,7 @@ def invalidate_cloudfront(paths: list[str] | None = None) -> dict | None:
 # AGGREGATION
 # =========================
 
-def aggregate_access_level(access_level: str) -> tuple[list[dict], list[dict], list[str]]:
+def aggregate_access_level(access_level: str) -> tuple[list[dict], list[dict], list[str], dict]:
     latest_keys = list_latest_keys_for_access(access_level)
     logger.info("Found %s latest dataset files for %s", len(latest_keys), access_level)
 
@@ -397,9 +491,21 @@ def aggregate_access_level(access_level: str) -> tuple[list[dict], list[dict], l
             }
         )
 
+    previous_lookup = get_previous_record_lookup(access_level)
+    now_dt = datetime.now(timezone.utc)
+    all_records = apply_newness_flags(access_level, all_records, previous_lookup, now_dt)
+
     all_records.sort(key=sort_key)
     dataset_summaries.sort(key=lambda d: (d.get("label") or d.get("key") or ""))
-    return all_records, dataset_summaries, latest_keys
+
+    new_count = sum(1 for r in all_records if r.get("is_new") is True)
+
+    stats = {
+        "new_records_currently_flagged": new_count,
+        "previous_records_loaded": len(previous_lookup),
+    }
+
+    return all_records, dataset_summaries, latest_keys, stats
 
 
 # =========================
@@ -447,7 +553,7 @@ def main() -> None:
 
     try:
         for access_level in TARGET_ACCESS_LEVELS:
-            records, datasets, latest_keys = aggregate_access_level(access_level)
+            records, datasets, latest_keys, stats = aggregate_access_level(access_level)
             master_payload = build_master_payload(access_level, records, datasets, latest_keys)
             datasets_payload = build_datasets_payload(access_level, datasets)
             written = write_access_outputs(access_level, master_payload, datasets_payload)
@@ -460,16 +566,18 @@ def main() -> None:
                     "latest_files_found": len(latest_keys),
                     "datasets_aggregated": len(datasets),
                     "records_uploaded": len(records),
+                    **stats,
                     **written,
                 }
             )
 
             logger.info(
-                "%s complete | latest_files=%s datasets=%s records=%s",
+                "%s complete | latest_files=%s datasets=%s records=%s new=%s",
                 access_level,
                 len(latest_keys),
                 len(datasets),
                 len(records),
+                stats["new_records_currently_flagged"],
             )
 
         finished_at = utc_iso()
@@ -488,6 +596,7 @@ def main() -> None:
         print(json.dumps({
             "status": "ok",
             "bucket": S3_BUCKET,
+            "new_window_days": NEW_WINDOW_DAYS,
             "access_summaries": summaries,
             "log_key": log_key,
             "cloudfront_distribution_id": CLOUDFRONT_DISTRIBUTION_ID,
