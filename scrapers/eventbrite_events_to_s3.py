@@ -35,13 +35,25 @@ SOURCE_NAME = "Eventbrite"
 SOURCE_URL = URL
 FILTER_LABEL = "Eventbrite"
 
-LOCATION_NAME = "Eventbrite Southbank / South Wharf"
+LOCATION_NAME = "Eventbrite Melbourne"
 LOCATION_OBJECT = {
-    "code": "EVENTBRITE_SW",
-    "search_text": "Southbank South Wharf Melbourne VIC Australia Crown Seafarers Eventbrite",
+    "code": "EVENTBRITE_MELB",
+    "search_text": "South Wharf Docklands Melbourne VIC Australia Crown Melbourne Mission to Seafarers Victoria Marvel Stadium Eventbrite",
     "latitude": None,
     "longitude": None,
 }
+
+NEIGHBOURHOOD_TARGETS = ["Southbank", "Docklands"]
+
+ALLOWED_EXACT_LOCATIONS = {
+    "south wharf",
+}
+
+ALLOWED_VENUE_SUBSTRINGS = [
+    "crown melbourne",
+    "the mission to seafarers victoria",
+    "marvel stadium",
+]
 
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux armv7l) AppleWebKit/537.36 "
@@ -158,13 +170,70 @@ def parse_location_venue(line: str) -> tuple[str, str]:
 
 
 def keep_event(location: str, venue: str) -> bool:
-    loc = (location or "").lower().strip()
-    v = (venue or "").lower()
-    return (
-        loc in {"south wharf", "southbank"}
-        or ("crown" in v)
-        or ("seafarers" in v)
-    )
+    loc = (location or "").strip().lower()
+    v = (venue or "").strip().lower()
+
+    if loc in ALLOWED_EXACT_LOCATIONS:
+        return True
+
+    return any(needle in v for needle in ALLOWED_VENUE_SUBSTRINGS)
+
+
+def build_location_object(location_name: str) -> dict:
+    text = (location_name or "").strip()
+    lowered = text.lower()
+
+    if "crown melbourne" in lowered:
+        return {
+            "code": "CROWN_MELBOURNE",
+            "search_text": "Crown Melbourne Southbank Melbourne VIC Australia",
+            "latitude": None,
+            "longitude": None,
+        }
+
+    if "mission to seafarers victoria" in lowered:
+        return {
+            "code": "SEAFARERS_VIC",
+            "search_text": "The Mission to Seafarers Victoria Docklands Melbourne VIC Australia",
+            "latitude": None,
+            "longitude": None,
+        }
+
+    if "marvel stadium" in lowered:
+        return {
+            "code": "MARVEL",
+            "search_text": "Marvel Stadium Docklands Melbourne VIC Australia",
+            "latitude": None,
+            "longitude": None,
+        }
+
+    if "melbourne convention and exhibition centre" in lowered or "mcec" in lowered:
+        return {
+            "code": "MCEC",
+            "search_text": "Melbourne Convention and Exhibition Centre South Wharf Melbourne VIC Australia",
+            "latitude": None,
+            "longitude": None,
+        }
+
+    return {
+        "code": "SOUTH_WHARF",
+        "search_text": "South Wharf Melbourne VIC Australia",
+        "latitude": None,
+        "longitude": None,
+    }
+
+
+def build_categories(location_name: str) -> list[str]:
+    categories = ["Eventbrite"]
+    lowered = (location_name or "").strip().lower()
+
+    if "melbourne convention and exhibition centre" in lowered or "mcec" in lowered:
+        categories.append("MCEC")
+
+    if "marvel stadium" in lowered:
+        categories.append("Marvel")
+
+    return categories
 
 
 def split_date_time_and_more(line: str) -> tuple[str, str, bool]:
@@ -263,11 +332,7 @@ def find_next_search_button(driver):
     return None
 
 
-def find_neighbourhood_checkbox(driver, wait):
-    """
-    Prefer South Wharf if available.
-    Fall back to Southbank if that's the only neighbourhood option exposed.
-    """
+def find_neighbourhood_checkboxes(driver, wait, target_names: list[str]) -> list:
     wait.until(
         EC.presence_of_element_located(
             (By.CSS_SELECTOR, '[data-testid="filter-section__neighbourhood"]')
@@ -303,37 +368,34 @@ def find_neighbourhood_checkbox(driver, wait):
     except Exception:
         pass
 
-    candidates = [
-        _try_selector('input[data-testid="filter-display-South Wharf"]'),
-        _try_selector('input[data-testid="filter-display-SouthWharf"]'),
-        _try_xpath("//input[contains(@data-testid,'South Wharf')]"),
-        _try_xpath("//label[contains(., 'South Wharf')]//input"),
-        _try_xpath("//span[contains(., 'South Wharf')]/ancestor::label//input"),
-        _try_selector('input[data-testid="filter-display-Southbank"]'),
-        _try_xpath("//input[contains(@data-testid,'Southbank')]"),
-        _try_xpath("//label[contains(., 'Southbank')]//input"),
-        _try_xpath("//span[contains(., 'Southbank')]/ancestor::label//input"),
-    ]
+    found = []
 
-    for elem in candidates:
+    for name in target_names:
+        candidates = [
+            _try_selector(f'input[data-testid="filter-display-{name}"]'),
+            _try_xpath(f"//input[contains(@data-testid,'{name}')]"),
+            _try_xpath(f"//label[contains(., '{name}')]//input"),
+            _try_xpath(f"//span[contains(., '{name}')]/ancestor::label//input"),
+        ]
+
+        elem = next((c for c in candidates if c is not None), None)
         if elem is not None:
-            return elem
+            found.append(elem)
 
-    raise RuntimeError("Could not find South Wharf or Southbank neighbourhood checkbox")
+    if not found:
+        raise RuntimeError(
+            f"Could not find any target neighbourhood checkboxes: {', '.join(target_names)}"
+        )
+
+    return found
 
 
 def apply_neighborhood_filter(driver, wait) -> str:
     """
-    Apply neighbourhood filter and verify results changed before continuing.
-    Returns the filter label that was actually targeted.
+    Apply multiple neighbourhood filters and verify results changed before continuing.
+    Returns a comma-separated label of filters actually targeted.
     """
-    checkbox = find_neighbourhood_checkbox(driver, wait)
-
-    filter_name = (
-        checkbox.get_attribute("data-testid")
-        or checkbox.get_attribute("value")
-        or "neighbourhood"
-    )
+    checkboxes = find_neighbourhood_checkboxes(driver, wait, NEIGHBOURHOOD_TARGETS)
 
     def _is_checked(elem) -> bool:
         try:
@@ -348,12 +410,23 @@ def apply_neighborhood_filter(driver, wait) -> str:
     before_cards = len(driver.find_elements(By.CSS_SELECTOR, "div.event-card"))
     before_url = driver.current_url
 
-    if not _is_checked(checkbox):
-        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", checkbox)
-        time.sleep(0.2)
-        driver.execute_script("arguments[0].click();", checkbox)
+    applied_names = []
 
-    wait.until(lambda d: _is_checked(checkbox))
+    for checkbox in checkboxes:
+        filter_name = (
+            checkbox.get_attribute("data-testid")
+            or checkbox.get_attribute("value")
+            or "neighbourhood"
+        )
+
+        if not _is_checked(checkbox):
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", checkbox)
+            time.sleep(0.2)
+            driver.execute_script("arguments[0].click();", checkbox)
+            wait.until(lambda d, cb=checkbox: _is_checked(cb))
+
+        applied_names.append(filter_name)
+        time.sleep(0.8)
 
     try:
         wait.until(
@@ -366,7 +439,7 @@ def apply_neighborhood_filter(driver, wait) -> str:
         time.sleep(2.5)
 
     time.sleep(2.0)
-    return filter_name
+    return ", ".join(applied_names)
 
 
 def load_more_results(driver, max_clicks: int = LOAD_MORE_CLICKS) -> int:
@@ -1028,8 +1101,8 @@ def build_event_records(rows: list[dict]) -> list[dict]:
                 start_time=row.get("start_time"),
                 end_time=row.get("end_time"),
                 location_name=row.get("location_name", LOCATION_NAME),
-                location=LOCATION_OBJECT,
-                categories=["Eventbrite"],
+                location=build_location_object(row.get("location_name", LOCATION_NAME)),
+                categories=build_categories(row.get("location_name", LOCATION_NAME)),
                 audience_type=["Public"],
                 filter=FILTER_LABEL,
                 source=SOURCE_NAME,
