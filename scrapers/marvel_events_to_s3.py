@@ -103,11 +103,22 @@ def parse_date_and_time(summary: str) -> tuple[str | None, str | None]:
       "Thursday 26 February, 6 pm"
       "26 February, 6:00 pm"
       "Thursday 26 February 2026, 6:00 pm"
+
+    When Marvel omits the year, prefer the supplied weekday if present.
+    This prevents long-lead events like Rugby World Cup 2027 from being
+    incorrectly assigned to the next same day/month in the current year.
     """
     if not summary:
         return None, None
 
     s = " ".join(summary.split())
+
+    weekday_match = re.match(
+        r"^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b",
+        s,
+        re.I,
+    )
+    expected_weekday = weekday_match.group(1).lower() if weekday_match else None
 
     time_24 = None
     tm = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", s, re.I)
@@ -115,10 +126,12 @@ def parse_date_and_time(summary: str) -> tuple[str | None, str | None]:
         hour = int(tm.group(1))
         minute = int(tm.group(2) or 0)
         ampm = tm.group(3).lower()
+
         if ampm == "pm" and hour != 12:
             hour += 12
         if ampm == "am" and hour == 12:
             hour = 0
+
         time_24 = f"{hour:02d}:{minute:02d}"
 
     dm = re.search(
@@ -134,16 +147,40 @@ def parse_date_and_time(summary: str) -> tuple[str | None, str | None]:
     year_text = dm.group(3)
     today = date.today()
 
+    def parse_candidate(year_num: int):
+        dt = dateparser.parse(f"{day_num} {month_name} {year_num}", dayfirst=True)
+        return dt.date() if dt else None
+
     if year_text:
         year_num = int(year_text)
     else:
-        year_num = today.year
-        try:
-            candidate = dateparser.parse(f"{day_num} {month_name} {year_num}", dayfirst=True).date()
-            if candidate < today:
-                year_num += 1
-        except Exception:
-            pass
+        year_num = None
+
+        # Prefer the year where the supplied weekday matches.
+        # This handles long-lead events published more than 12 months out.
+        if expected_weekday:
+            for candidate_year in range(today.year, today.year + 5):
+                try:
+                    candidate = parse_candidate(candidate_year)
+                except Exception:
+                    continue
+
+                if not candidate or candidate < today:
+                    continue
+
+                if candidate.strftime("%A").lower() == expected_weekday:
+                    year_num = candidate_year
+                    break
+
+        # Fallback to old behaviour if no weekday match is available.
+        if year_num is None:
+            year_num = today.year
+            try:
+                candidate = parse_candidate(year_num)
+                if candidate and candidate < today:
+                    year_num += 1
+            except Exception:
+                pass
 
     try:
         dt = dateparser.parse(f"{day_num} {month_name} {year_num}", dayfirst=True)
@@ -152,7 +189,6 @@ def parse_date_and_time(summary: str) -> tuple[str | None, str | None]:
         return dt.strftime("%Y-%m-%d"), time_24
     except Exception:
         return None, time_24
-
 
 def infer_end_time(tag: str, start_time: str | None) -> str | None:
     if not start_time:
