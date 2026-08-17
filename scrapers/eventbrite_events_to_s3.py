@@ -62,6 +62,9 @@ ALLOWED_VENUE_SUBSTRINGS = [
     "crown melbourne",
     "the mission to seafarers victoria",
     "marvel stadium",
+    "melbourne convention and exhibition centre",
+    "mcec",
+    "plenary theatre",
 ]
 
 MELBOURNE_TZ = ZoneInfo("Australia/Melbourne")
@@ -193,7 +196,9 @@ def keep_event(location: str, venue: str) -> bool:
     if loc in ALLOWED_EXACT_LOCATIONS:
         return True
 
-    return any(needle in v for needle in ALLOWED_VENUE_SUBSTRINGS)
+    # Eventbrite is inconsistent about whether the place name lands in
+    # the location or venue field, so match against both.
+    return any(needle in combined for needle in ALLOWED_VENUE_SUBSTRINGS)
 
 
 def build_location_object(location_name: str) -> dict:
@@ -224,7 +229,11 @@ def build_location_object(location_name: str) -> dict:
             "longitude": None,
         }
 
-    if "melbourne convention and exhibition centre" in lowered or "mcec" in lowered:
+    if (
+        "melbourne convention and exhibition centre" in lowered
+        or "mcec" in lowered
+        or "plenary theatre" in lowered
+    ):
         return {
             "code": "MCEC",
             "search_text": "Melbourne Convention and Exhibition Centre South Wharf Melbourne VIC Australia",
@@ -244,7 +253,11 @@ def build_categories(location_name: str) -> list[str]:
     categories = ["Eventbrite"]
     lowered = (location_name or "").strip().lower()
 
-    if "melbourne convention and exhibition centre" in lowered or "mcec" in lowered:
+    if (
+        "melbourne convention and exhibition centre" in lowered
+        or "mcec" in lowered
+        or "plenary theatre" in lowered
+    ):
         categories.append("MCEC")
 
     if "marvel stadium" in lowered:
@@ -372,11 +385,18 @@ def find_next_search_button(driver):
 
 
 def find_neighbourhood_checkboxes(driver, wait, target_names: list[str]) -> list:
-    wait.until(
-        EC.presence_of_element_located(
-            (By.CSS_SELECTOR, '[data-testid="filter-section__neighbourhood"]')
-        )
+    """
+    Return matching neighbourhood filter checkboxes when Eventbrite exposes
+    that filter. Eventbrite may remove or A/B-test this section, so absence is
+    not fatal; the scraper's own venue/location filtering remains authoritative.
+    """
+    sections = driver.find_elements(
+        By.CSS_SELECTOR,
+        '[data-testid="filter-section__neighbourhood"]',
     )
+    if not sections:
+        return []
+
     time.sleep(0.8)
 
     def _try_selector(selector: str):
@@ -392,7 +412,7 @@ def find_neighbourhood_checkboxes(driver, wait, target_names: list[str]) -> list
             return None
 
     try:
-        view_more = wait.until(
+        view_more = WebDriverWait(driver, 5).until(
             EC.element_to_be_clickable((
                 By.XPATH,
                 "//div[@id='view-more-neighbourhood']"
@@ -421,20 +441,25 @@ def find_neighbourhood_checkboxes(driver, wait, target_names: list[str]) -> list
         if elem is not None:
             found.append(elem)
 
-    if not found:
-        raise RuntimeError(
-            f"Could not find any target neighbourhood checkboxes: {', '.join(target_names)}"
-        )
-
     return found
 
 
 def apply_neighborhood_filter(driver, wait) -> str:
     """
-    Apply multiple neighbourhood filters and verify results changed before continuing.
-    Returns a comma-separated label of filters actually targeted.
+    Apply Southbank/Docklands filters when Eventbrite exposes them.
+
+    The neighbourhood filter disappeared from Eventbrite's Melbourne search
+    page in August 2026. If it is absent, continue without failing and rely on
+    keep_event() to enforce our South Wharf / MCEC / Crown / Marvel / Mission
+    scope.
     """
     checkboxes = find_neighbourhood_checkboxes(driver, wait, NEIGHBOURHOOD_TARGETS)
+    if not checkboxes:
+        logger.warning(
+            "Eventbrite neighbourhood filter is not available; "
+            "continuing with local venue/location filtering"
+        )
+        return "not_available"
 
     def _is_checked(elem) -> bool:
         try:
