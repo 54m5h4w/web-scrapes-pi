@@ -5,6 +5,7 @@ import time
 from collections import defaultdict
 from copy import deepcopy
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from urllib.parse import urlsplit, urlunsplit
 
 from selenium.webdriver.common.by import By
@@ -45,6 +46,14 @@ LOCATION_OBJECT = {
 
 NEIGHBOURHOOD_TARGETS = ["Southbank", "Docklands"]
 
+# Exclude our own South Wharf venue events from this public Eventbrite feed.
+EXCLUDED_VENUE_SUBSTRINGS = [
+    "bangpop",
+    "bang pop",
+    "plus 5",
+    "plus5",
+]
+
 ALLOWED_EXACT_LOCATIONS = {
     "south wharf",
 }
@@ -54,6 +63,8 @@ ALLOWED_VENUE_SUBSTRINGS = [
     "the mission to seafarers victoria",
     "marvel stadium",
 ]
+
+MELBOURNE_TZ = ZoneInfo("Australia/Melbourne")
 
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux armv7l) AppleWebKit/537.36 "
@@ -172,6 +183,12 @@ def parse_location_venue(line: str) -> tuple[str, str]:
 def keep_event(location: str, venue: str) -> bool:
     loc = (location or "").strip().lower()
     v = (venue or "").strip().lower()
+    combined = f"{loc} {v}"
+
+    # Explicitly remove BangPop and Plus 5, even when Eventbrite labels
+    # their broader location as South Wharf.
+    if any(needle in combined for needle in EXCLUDED_VENUE_SUBSTRINGS):
+        return False
 
     if loc in ALLOWED_EXACT_LOCATIONS:
         return True
@@ -250,17 +267,41 @@ def split_date_time_and_more(line: str) -> tuple[str, str, bool]:
     return (date_part if date_part else "n/a"), time_part, re_occurring
 
 
+def melbourne_today() -> date:
+    return datetime.now(MELBOURNE_TZ).date()
+
+
 def next_weekday(d: date, wd: int) -> date:
     return d + timedelta(days=(wd - d.weekday()) % 7)
+
+
+def resolve_event_date(day_num: int, month_num: int, explicit_year: int | None = None) -> date | None:
+    """Resolve an upcoming Eventbrite day/month to a safe calendar date.
+
+    If Eventbrite supplies a year, use it. If the year is omitted, only roll
+    into next year when the month itself has wrapped (for example December ->
+    January). A past day in the current month is rejected rather than being
+    incorrectly turned into the same day next year.
+    """
+    today = melbourne_today()
+
+    try:
+        year = explicit_year if explicit_year is not None else (
+            today.year + 1 if month_num < today.month else today.year
+        )
+        candidate = date(year, month_num, day_num)
+        return candidate if candidate >= today else None
+    except ValueError:
+        return None
 
 
 def parse_date_part_to_iso(date_part: str) -> str | None:
     if not date_part or date_part.strip().lower() == "n/a":
         return None
 
-    s = date_part.strip().lower()
-    s = re.sub(r"\bat\b.*$", "", s).strip()
-    today = date.today()
+    s = " ".join(date_part.strip().lower().split())
+    s = re.sub(r"\bat\b.*$", "", s).strip().rstrip(",")
+    today = melbourne_today()
 
     if s == "today":
         return today.isoformat()
@@ -269,22 +310,20 @@ def parse_date_part_to_iso(date_part: str) -> str | None:
     if s in WEEKDAYS:
         return next_weekday(today, WEEKDAYS[s]).isoformat()
 
-    s2 = re.sub(r"^[a-z]{3,9},\s*", "", s).strip()
-    m = re.match(r"^(\d{1,2})\s+([a-z]{3,9})\b", s2)
+    # Remove an optional weekday prefix, e.g. "Mon, 17 Aug 2026".
+    s2 = re.sub(r"^[a-z]{3,9},?\s+", "", s).strip()
+    m = re.match(r"^(\d{1,2})\s+([a-z]{3,9})(?:[\s,]+(\d{4}))?\b", s2)
     if not m:
         return None
 
     day_num = int(m.group(1))
-    mon_key = m.group(2).lower()
-    mon = MONTHS.get(mon_key)
+    mon = MONTHS.get(m.group(2).lower())
+    explicit_year = int(m.group(3)) if m.group(3) else None
     if not mon:
         return None
 
-    year = today.year + 1 if mon < today.month else today.year
-    try:
-        return date(year, mon, day_num).isoformat()
-    except ValueError:
-        return None
+    resolved = resolve_event_date(day_num, mon, explicit_year)
+    return resolved.isoformat() if resolved else None
 
 
 def safe_click(driver, elem) -> None:
@@ -699,8 +738,8 @@ def parse_month_label(month_label: str) -> tuple[int | None, int | None]:
         return None, None
 
     mon = MONTHS.get(match.group(1).lower())
-    year = int(match.group(2)) if match.group(2) else date.today().year
-    return year, mon
+    explicit_year = int(match.group(2)) if match.group(2) else None
+    return explicit_year, mon
 
 
 def parse_slot_range_to_24h(slot_text: str) -> tuple[str | None, str | None]:
@@ -836,17 +875,13 @@ def get_recurring_availability_dates(driver, event_url: str) -> dict:
     def parse_date_tiles() -> dict:
         month_nodes = []
         for elem in driver.find_elements(By.XPATH, "//*[self::p or self::div][normalize-space(.)]"):
-            txt = (elem.text or "").strip().lower()
-            if txt in MONTHS:
-                month_nodes.append(elem)
+            txt = " ".join((elem.text or "").strip().split())
+            explicit_year, month_num = parse_month_label(txt)
+            if month_num:
+                month_nodes.append((elem, explicit_year, month_num))
 
         results = []
-        assumed_year = datetime.now().year
-        for month_node in month_nodes:
-            month_name = (month_node.text or "").strip().lower()
-            month_num = MONTHS.get(month_name)
-            if not month_num:
-                continue
+        for month_node, explicit_year, month_num in month_nodes:
 
             container = month_node
             for _ in range(4):
@@ -893,7 +928,11 @@ def get_recurring_availability_dates(driver, event_url: str) -> dict:
                 if not day_num:
                     continue
 
-                dt = datetime(assumed_year, month_num, day_num, hh, mm)
+                resolved_date = resolve_event_date(day_num, month_num, explicit_year)
+                if not resolved_date:
+                    continue
+
+                dt = datetime(resolved_date.year, resolved_date.month, resolved_date.day, hh, mm)
                 results.append(dt.strftime("%Y-%m-%dT%H:%M"))
 
         seen = set()
@@ -1037,12 +1076,15 @@ def expand_recurring_rows(base_rows: list[dict]) -> tuple[list[dict], dict]:
                 for month_label, days in availability.items():
                     if month_label == "mode" or not isinstance(days, list):
                         continue
-                    year, month = parse_month_label(month_label)
-                    if not year or not month:
+                    explicit_year, month = parse_month_label(month_label)
+                    if not month:
                         continue
                     for day_num in days:
+                        resolved_date = resolve_event_date(int(day_num), month, explicit_year)
+                        if not resolved_date:
+                            continue
                         child = deepcopy(parent)
-                        child["date"] = f"{year:04d}-{month:02d}-{int(day_num):02d}"
+                        child["date"] = resolved_date.isoformat()
                         child["re_occurring"] = False
                         child["notes"] = ((child.get("notes") or "") + f" | derived_from_recurring: {source_url} | mode: calendar_grid | month_label: {month_label}").strip()
                         children.append(child)
