@@ -8,6 +8,9 @@ EPG='https://xmltv.net/xml_files/Melbourne.xml'
 def normal(s):return re.sub(r'\s+',' ',(s or '').strip()).casefold()
 def channel_family(s):
     t=normal(s)
+    if 'racing.com' in t or 'racing com' in t:return ''
+    if t.startswith('nitv'):return 'nitv'
+    if re.search(r'\bchannel\s*31\b',t):return 'channel 31'
     if re.search(r'\b(?:7mate|7two|7flix)\b',t):return re.search(r'\b(7mate|7two|7flix)\b',t).group(1)
     if re.search(r'\b(?:9go!?|9gem|9life)\b',t):return re.search(r'\b(9go!?|9gem|9life)\b',t).group(1).replace('!','')
     if t.startswith('sbs2') or 'viceland' in t:return 'sbs viceland'
@@ -64,6 +67,14 @@ def extract_matchup(title, subtitle, description):
         )
         match = re.search(fallback, desc, re.IGNORECASE)
     if not match:
+        venue_patterns = [
+            r'\bfrom\s+(?:the\s+)?([A-Z][A-Za-z0-9’\'& .-]{3,80}?(?:Street Circuit|Raceway|Circuit|Oval|Stadium|Arena))(?=\s*[,.]|\s+on\b|$)',
+            r'\bat\s+(?:the\s+)?([A-Z][A-Za-z0-9’\'& .-]{3,80}?(?:Street Circuit|Raceway|Circuit|Oval|Stadium|Arena))(?=\s*[,.]|\s+on\b|$)',
+        ]
+        for venue_pattern in venue_patterns:
+            venue_match = re.search(venue_pattern, desc)
+            if venue_match:
+                return re.sub(r'\s+', ' ', venue_match.group(1)).strip(' ,.;')
         return title
 
     def tidy(value):
@@ -97,7 +108,13 @@ def prefer_detailed_programmes(rows):
         unique = {}
         for r in candidates:
             key = normal(r['teams'])
-            score = (bool(r.get('epg_subtitle')), bool(r.get('description')), len(r.get('description') or ''))
+            ch = normal(r['channel'])
+            score = (
+                bool(r.get('epg_subtitle')),
+                bool(r.get('description')),
+                len(r.get('description') or ''),
+                not any(tag in ch for tag in (' hd ', ' h d ')),
+            )
             if key not in unique or score > unique[key][0]:
                 unique[key] = (score, r)
         chosen.extend(x[1] for x in unique.values())
