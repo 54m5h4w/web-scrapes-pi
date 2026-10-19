@@ -745,6 +745,10 @@
     .sport-logo{width:54px;height:38px;object-fit:contain;flex-shrink:0;}
     .venue-manager-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0}
     .sport-priority{color:#e2e8f0;font-weight:700}
+    .sport-clash-details{margin-top:6px;font-size:.81rem;max-width:330px}
+    .sport-clash-details summary{cursor:pointer;color:#fbbf24;list-style:auto}
+    .sport-clash-details ul{padding-left:18px;margin:6px 0;color:#cbd5e1}
+    .sport-clash-details li{margin:4px 0}
     .sport-clash{font-size:.76rem;color:#fbbf24;display:block;margin-top:5px}
     .sport-new {display:inline-block;margin-left:9px;font-size:.72rem;font-weight:750;padding:3px 6px;color:#fff;background:#2563eb;border-radius:4px}
   .venue-tabbar{position:sticky;top:0;z-index:30;background:#0b1221;padding:12px 0 16px;display:flex;gap:10px;flex-wrap:wrap;border-bottom:1px solid #334155;margin-bottom:20px}
@@ -824,8 +828,8 @@
       <div id="venueManagerActions" class="venue-manager-actions" style="display:none"><button type="button" id="venueExportPriorities" class="btn-secondary">Export screening priorities</button><span class="small">Manager draft — export and publish to S3 to share with staff</span></div>
       <div id="venueSummary" class="venue-status">Loading XMLTV broadcasts from S3…</div>
       <div class="venue-table-wrap"><table class="venue-table"><thead><tr>
-        <th>Teams / Event</th><th>Broadcast Start Time*</th><th>Channel</th><th>Screening Priority</th><th class="sam-only-omit">Omit</th>
-      </tr></thead><tbody id="venueRows"><tr><td colspan="5">Loading XMLTV broadcasts…</td></tr></tbody></table></div>
+        <th>Teams / Event</th><th>Broadcast Start Time*</th><th>Broadcast End Time</th><th>Channel</th><th>Screening Priority</th><th class="sam-only-omit">Omit</th>
+      </tr></thead><tbody id="venueRows"><tr><td colspan="6">Loading XMLTV broadcasts…</td></tr></tbody></table></div>
       <p class="venue-status" id="venuePriorityNote">*Actual sport start time may vary. A clash is shown only where XMLTV broadcast times overlap. Managers can nominate preferred screening; staff see this as a guide.</p>
     </section>
     <div id="eventsView">
@@ -1961,7 +1965,7 @@
   }
   function renderVenueRows(){
     if(!['P5','HATF'].includes(venueUI.active))return;
-    const venue=venueUI.active,whole=allVenueRows(venue),clashes=overlappingGroups(whole);
+    const venue=venueUI.active,whole=allVenueRows(venue),clashes=overlappingGroups(whole),wholeById=new Map(whole.map(r=>[fixtureId(r),r]));
     sportChoices(ve('venueDate'),whole.map(r=>(r.coverage_start_local||'').slice(0,10)),'All dates');
     const q=ve('venueSearch').value.toLowerCase().trim();
     const rows=whole.filter(r=>(!ve('venueDate').value||(r.coverage_start_local||'').startsWith(ve('venueDate').value))&&
@@ -1976,15 +1980,23 @@
       if(conflicts){
         if(managerMode())preference=`<label class="venue-check"><input type="checkbox" data-priority-key="${escapeHtml(key)}" ${priority?'checked':''}> Preferred screening</label>`;
         else preference=priority?'<span class="sport-priority">Preferred screening</span>':'—';
-        preference+='<span class="sport-clash">Broadcast time clash</span>';
+        const others=conflicts.filter(id=>id!==key).map(id=>wholeById.get(id)).filter(Boolean);
+        const overlapList=others.map(other=>{
+          const otherTitle=eventTitle(other);
+          const from=sportDateTime(other.coverage_start_local||other.match_start_local);
+          const to=sportDateTime(other.coverage_end_local);
+          return `<li>${escapeHtml(otherTitle)} — ${escapeHtml(from)}–${escapeHtml(to)} · ${escapeHtml(other.channel||'Unknown channel')}</li>`;
+        }).join('');
+        preference+=`<details class="sport-clash-details"><summary>Clashes with ${others.length} other broadcast${others.length===1?'':'s'}</summary><ul>${overlapList}</ul></details>`;
       }
       const detail=eventTitle(r)!==label?`<span class="sport-subtitle">${escapeHtml(eventTitle(r))}</span>`:'';
       return `<tr><td><div class="sport-event-details"><strong>${escapeHtml(label)}</strong>${detail}</div></td>
         <td>${escapeHtml(sportDateTime(r.coverage_start_local||r.match_start_local))}</td>
+        <td>${escapeHtml(r.coverage_end_local?sportDateTime(r.coverage_end_local):'—')}</td>
         <td>${escapeHtml(r.channel||'Unknown channel')}</td>
         <td>${preference}</td>
         ${samMode()?`<td><label class="venue-check"><input type="checkbox" data-omit-title="${escapeHtml(titleRule(r))}"> Omit title</label></td>`:''}</tr>`;
-    }).join(''):'<tr><td colspan="5">No eligible XMLTV broadcasts for these filters.</td></tr>';
+    }).join(''):'<tr><td colspan="6">No eligible XMLTV broadcasts for these filters.</td></tr>';
     ve('venueRows').querySelectorAll('[data-priority-key]').forEach(input=>input.addEventListener('change',()=>{
       if(!managerMode())return;const key=input.dataset.priorityKey,group=clashes.get(key)||[];
       if(input.checked)for(const id of group)venueUI.draft[venue][id]=(id===key);
