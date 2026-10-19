@@ -32,25 +32,76 @@ def load_xml(source):
     with urllib.request.urlopen(req,timeout=90) as r:return r.read()
 
 def extract_matchup(title, subtitle, description):
-    """Conservative fixture-title extraction from programme metadata."""
-    if subtitle.strip():
-        return subtitle.strip()
-    desc=re.sub(r'\s+', ' ', description or '').strip()
-    if not desc:return title
-    patterns=[
-        r'\b(The [A-Za-z][A-Za-z .\x27-]{1,48}?)\s+take on\s+(the [A-Za-z][A-Za-z .\x27-]{1,48}?)(?=,|\.|;|\s+live\b|\s+at\b)',
-        r'\b(The [A-Za-z][A-Za-z .\x27-]{1,48}?)\s+clash(?:es)?\s+with\s+(the [A-Za-z][A-Za-z .\x27-]{1,48}?)(?=,|\.|;|\s+live\b|\s+at\b)',
-        r'\b([A-Z][A-Za-z .\x27-]{2,48}?)\s+(?:vs?\.?|versus)\s+([A-Z][A-Za-z .\x27-]{2,48}?)(?=,|\.|;|\s+live\b|\s+at\b)'
-    ]
-    for pattern in patterns:
-        m=re.search(pattern,desc,re.I)
-        if m:
-            def tidy(s):
-                s=re.sub(r'^(?:the)\s+','',s.strip(),flags=re.I)
-                return re.sub(r'\s+',' ',s).strip(' ,.:;-')
-            a,b=tidy(m.group(1)),tidy(m.group(2))
-            if a and b:return a+' v '+b
-    return title
+    """Prefer XMLTV subtitle, otherwise identify two teams from description.
+
+    Conservative: team-versus-team wording only. Preserve the programme title
+    when no unambiguous pairing exists; never infer teams from event titles alone.
+    """
+    subtitle = re.sub(r"\s+", " ", subtitle or "").strip()
+    if subtitle:
+        return subtitle
+    desc = re.sub(r"\s+", " ", description or "").strip()
+    if not desc:
+        return title
+
+    # Phrases used by Australian TV guides, including AFLW summaries.
+    # Capture stops at punctuation or a coverage phrase, so locations and
+    # broadcast commentary don't become part of a team name.
+    team = r"(?:the\s+)?[A-Za-z][A-Za-z0-9'’&. -]{1,58}?"
+    verb = r"(?:go\s+head[- ]to[- ]head\s+with|go\s+head\s+to\s+head\s+against|take\s+on|clash(?:es)?\s+with|face(?:s)?|meet(?:s)?|vs?\.?|versus)"
+    ending = r"(?=\s*(?:,|;|\.|!|$|\blive\b|\bfrom\b|\bat\b|\bin\b|\bon\b|\bthis\b|\bfor\b))"
+    pattern = rf"\b({team})\s+{verb}\s+({team}){ending}"
+    match = re.search(pattern, desc, re.IGNORECASE)
+    if not match:
+        # Explicit subject/predicate search handles unprefixed national teams such
+        # as "Australia takes on New Zealand in this final ...".
+        fallback = (
+            r"(?:^|[.!?]\s+)(?:the\s+)?"
+            r"([A-Za-z][A-Za-z0-9'’&. -]{1,58}?)\s+"
+            r"(?:takes?\s+on|clash(?:es)?\s+with|go(?:es)?\s+head[- ]to[- ]head\s+with)\s+"
+            r"(?:the\s+)?([A-Za-z][A-Za-z0-9'’&. -]{1,58}?)"
+            r"(?=\s+(?:in\s+this|in\s+the|live\b|from\b|at\b|on\b|for\b)|[,;.!?]|$)"
+        )
+        match = re.search(fallback, desc, re.IGNORECASE)
+    if not match:
+        return title
+
+    def tidy(value):
+        value = re.sub(r"^(?:the)\s+", "", value.strip(), flags=re.I)
+        return re.sub(r"\s+", " ", value).strip(" ,.:;-")
+
+    left, right = tidy(match.group(1)), tidy(match.group(2))
+    # Reject sentence fragments and trivially generic names.
+    invalid = {"the", "team", "teams", "game", "match", "live", "today"}
+    if not left or not right or left.casefold() in invalid or right.casefold() in invalid:
+        return title
+    return f"{left} v {right}"
+
+
+def prefer_detailed_programmes(rows):
+    """For identical channel-family/title/start, suppress generic duplicates.
+
+    Do not collapse two distinct, identified matchups merely because the EPG
+    broadcaster gave them the same title/time. Retain an original generic row
+    when no more informative alternative exists.
+    """
+    groups = {}
+    for row in rows:
+        key = (row['channel_family'], row['coverage_start_local'], normal(row['epg_title']))
+        groups.setdefault(key, []).append(row)
+    chosen = []
+    for group in groups.values():
+        informative = [r for r in group if normal(r['teams']) != normal(r['epg_title'])]
+        candidates = informative if informative else group
+        # Deduplicate HD/SD and repeated variants of the same named fixture.
+        unique = {}
+        for r in candidates:
+            key = normal(r['teams'])
+            score = (bool(r.get('epg_subtitle')), bool(r.get('description')), len(r.get('description') or ''))
+            if key not in unique or score > unique[key][0]:
+                unique[key] = (score, r)
+        chosen.extend(x[1] for x in unique.values())
+    return chosen
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--xml',default=EPG);p.add_argument('--days',type=int,default=30);p.add_argument('--upload',action='store_true');p.add_argument('--bucket',default=os.getenv('S3_BUCKET','event-scrape-data'));a=p.parse_args()
@@ -70,6 +121,8 @@ def main():
         title=(node.findtext('title') or '').strip();subtitle=(node.findtext('sub-title') or '').strip()
         if not title:continue
         # Prefer common non-HD channel where both are in the EPG, dedupe by family + start + title + subtitle.
+        # Exact duplicates can be discarded immediately. Different subtitles
+        # are evaluated in a second pass to favour identified teams.
         identity=(family,when.isoformat(),normal(title),normal(subtitle))
         if identity in seen:continue
         seen.add(identity)
@@ -79,6 +132,7 @@ def main():
         matchup=extract_matchup(title,subtitle,desc)
         row={'xml_id':key,'match_id':None,'teams':matchup,'epg_title':title,'epg_subtitle':subtitle,'description':desc, 'strSport':'Sports','sport':'Sports','channel':ch,'channel_family':family,'strLogo':None,'channel_logo':None,'match_start_local':when.isoformat(),'coverage_start_local':when.isoformat(),'coverage_end_local':stop.isoformat() if stop else None,'source':'XMLTV Melbourne','broadcast_type':'xmltv_sports_programme','category':cats,'competition':''}
         out.append(row)
+    out = prefer_detailed_programmes(out)
     out.sort(key=lambda x:(x['match_start_local'],x['channel'],x['teams']))
     payload={'version':1,'generated_at_utc':dt.datetime.now(dt.timezone.utc).isoformat(),'source':'XMLTV Melbourne','programmes':out,'count':len(out),'notice':'XMLTV Sports-category broadcasts; broadcast start/end times from XMLTV. Title-wide omissions are managed separately.'}
     target=Path('data/sports-xmltv.json');target.parent.mkdir(exist_ok=True);target.write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding='utf8')
