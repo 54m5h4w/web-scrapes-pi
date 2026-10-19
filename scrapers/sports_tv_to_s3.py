@@ -19,8 +19,28 @@ MEL = ZoneInfo('Australia/Melbourne')
 API_URL = 'https://www.thesportsdb.com/api/v2/json/filter/tv/country/australia'
 BLOCKED = re.compile(r'\b(?:sydney|brisbane|perth|adelaide|darwin|hobart|tasmania|queensland|western australia|south australia|new south wales|nsw|wa|sa|qld)\b', re.I)
 MELBOURNE = re.compile(r'\b(?:melbourne|victoria|vic)\b', re.I)
-NETWORKS = re.compile(r'^(?:(?:7(?:mate|two|flix|plus)?|seven)|(?:9(?:go!?|gem|life|rush)?|nine)|(?:10|ten)(?:\s+(?:bold|peach|shake|drama))?|sbs(?:\s*\d+)?|abc(?:\s*\w+)?)\b', re.I)
+# Only Australian terrestrial free-to-air channel brands. This is an allowlist,
+# not a blacklist of subscriptions. Provider naming variations are permitted.
+FTA_CHANNEL = re.compile(
+    r'^(?:'
+    r'(?:7|seven)(?:\s*(?:mate|two|flix))?'
+    r'|(?:9|nine)(?:\s*(?:go!?|gem|life|rush))?'
+    r'|(?:10|ten)(?:\s+(?:bold|peach|shake|drama))?'
+    r'|sbs(?:\s*(?:2|viceland|world\s+movies|food|worldwatch|nitv))?'
+    r'|abc(?:\s*(?:tv|hd|kids|family|me|news))?'
+    r')'
+    r'(?:\s+(?:hd|sd))?'
+    r'(?:\s+(?:melbourne|victoria|vic|australia))?$', re.I)
 REPLAY = re.compile(r'\b(?:replay|repeat|highlights?|recap|review|best of|previously shown|delayed coverage)\b', re.I)
+
+
+def is_free_to_air(channel):
+    # Normalize punctuation/spacing, preserving channel labels in the output.
+    clean = re.sub(r'[^a-z0-9]+', ' ', channel.casefold()).strip()
+    # 9Go! and 9Go are equivalent; supported by regex after normalization.
+    return bool(FTA_CHANNEL.fullmatch(clean))
+
+
 
 
 def get(row, *names):
@@ -86,7 +106,7 @@ def assess_channel(label):
         return 'interstate_channel'
     if MELBOURNE.search(label):
         return 'melbourne_labelled'
-    if NETWORKS.search(label):
+    if is_free_to_air(label):
         return 'national_network_unverified'
     return 'unknown_channel_region'
 
@@ -96,8 +116,12 @@ def convert(row, today, until, include_unknown_channels=False):
         return None, 'malformed_record'
     channel = get(row, 'strChannel', 'strTVChannel', 'channel', 'strTV')
     channel_status = assess_channel(channel)
-    if channel_status in ('missing_channel', 'interstate_channel'):
+    if channel_status == 'missing_channel':
         return None, channel_status
+    if channel_status == 'interstate_channel':
+        return None, channel_status
+    if not is_free_to_air(channel):
+        return None, 'not_free_to_air'
     start = time_local(row)
     if start is None:
         return None, 'missing_fixture_datetime'
@@ -171,7 +195,7 @@ def build(raw, date_from, days, include_unknown_channels=False):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--days', type=int, default=9)
+    ap.add_argument('--days', type=int, default=30)
     ap.add_argument('--date', help='YYYY-MM-DD start date in Melbourne')
     ap.add_argument('--local-only', action='store_true')
     ap.add_argument('--output', default='data/sports-tv.json')
@@ -191,8 +215,8 @@ def main():
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     result = {
-        'schema_version': 16,
-        'source': 'TheSportsDB premium Australian TV assignments only',
+        'schema_version': 18,
+        'source': 'TheSportsDB premium Australian TV assignments - free-to-air only',
         'generated_at_utc': datetime.now(timezone.utc).isoformat(),
         'timezone': 'Australia/Melbourne',
         'date_from': start.isoformat(), 'days': args.days,
