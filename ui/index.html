@@ -799,33 +799,34 @@
       <button type="button" id="tabEvents" class="btn-secondary is-active">Trade Events</button>
       <button type="button" id="tabP5" class="btn-secondary">Live Sport P5</button>
       <button type="button" id="tabHATF" class="btn-secondary">Live Sport HATF</button>
-      <button type="button" id="tabXML" class="btn-secondary" style="display:none">XMLTV Review</button>
+      
       <button type="button" id="tabOmitted" class="btn-secondary" style="display:none">Omitted Programmes</button>
     </nav>
     <section id="xmlAudit" class="panel" style="display:none">
-      <h2 id="xmlAuditHeading">XMLTV Review</h2>
-      <p class="venue-status" id="xmlAuditNotice">Search the XMLTV programme guide. Omit a programme to remove it from both venue schedules.</p>
-      <div class="venue-tools"><label>Search XMLTV <input type="search" id="xmlAuditSearch" placeholder="Programme, sport, channel"></label>
+      <h2 id="xmlAuditHeading">Omitted Programmes</h2>
+      <p class="venue-status" id="xmlAuditNotice">Restore omitted programme titles to the screening lists.</p>
+      <div class="venue-tools"><label>Search omissions <input type="search" id="xmlAuditSearch" placeholder="Programme, team or channel"></label>
       <label>Channel <select id="xmlAuditChannel"><option value="">All channels</option></select></label></div>
       <div id="xmlAuditSummary" class="venue-status"></div>
       <div id="xmlAuditActions" class="venue-manager-actions"><button type="button" id="xmlExportOmissions" class="btn-secondary">Export omissions to S3</button><span class="small">Download JSON then upload to S3 to share. Changes on this device take effect immediately.</span></div>
-      <div class="venue-table-wrap"><table class="venue-table"><thead><tr><th>Teams / Event</th><th>Sport</th><th>Start Time</th><th>Channel</th><th>Info</th><th>Omit title (both venues)</th></tr></thead><tbody id="xmlAuditRows"></tbody></table></div>
+      <div class="venue-table-wrap"><table class="venue-table"><thead><tr><th>Programme / Teams</th><th>Broadcast Start</th><th>Channel</th><th>Description</th><th>Restore</th></tr></thead><tbody id="xmlAuditRows"></tbody></table></div>
     </section>
     <section id="venueSports" class="panel" style="display:none" aria-label="Private sports testing">
       <h2 id="venueHeading">Live Sport</h2>
       <div class="venue-tools">
-        <label>Sport <select id="venueSport"><option value="">All sports</option></select></label>
+        
         <label>Date <select id="venueDate"><option value="">All dates</option></select></label>
-        <label>Search <input id="venueSearch" type="text" placeholder="Sport, teams or channel"></label>
+        <label>Search <input id="venueSearch" type="text" placeholder="Programme, teams or channel"></label>
         <label class="venue-check"><input id="venueOnlySelected" type="checkbox"> Screening priority only</label>
       </div>
       <div id="venueRules" class="venue-status"></div>
+      <div class="venue-manager-actions" id="venueOmitActions" style="display:none"><button type="button" id="venueExportOmissions" class="btn-secondary">Export omitted programmes</button><span class="small">Selections are local until the JSON is uploaded to S3</span></div>
       <div id="venueManagerActions" class="venue-manager-actions" style="display:none"><button type="button" id="venueExportPriorities" class="btn-secondary">Export screening priorities</button><span class="small">Manager draft — export and publish to S3 to share with staff</span></div>
-      <div id="venueSummary" class="venue-status">Loading latest matched fixtures from S3…</div>
+      <div id="venueSummary" class="venue-status">Loading XMLTV broadcasts from S3…</div>
       <div class="venue-table-wrap"><table class="venue-table"><thead><tr>
-        <th>Teams / Event</th><th>Sport</th><th>Start Time (Melbourne)</th><th>Channel</th><th>Screening Priority</th>
-      </tr></thead><tbody id="venueRows"><tr><td colspan="5">Waiting for latest sports feed…</td></tr></tbody></table></div>
-      <p class="venue-status" id="venuePriorityNote">Where fixtures clash, a manager may nominate a preferred screening. Staff see the shared priority as a guide.</p>
+        <th>Teams / Event</th><th>Broadcast Start Time*</th><th>Channel</th><th>Screening Priority</th><th class="sam-only-omit">Omit</th>
+      </tr></thead><tbody id="venueRows"><tr><td colspan="5">Loading XMLTV broadcasts…</td></tr></tbody></table></div>
+      <p class="venue-status" id="venuePriorityNote">*Actual sport start time may vary. A clash is shown only where XMLTV broadcast times overlap. Managers can nominate preferred screening; staff see this as a guide.</p>
     </section>
     <div id="eventsView">
     <section class="panel">
@@ -1893,28 +1894,23 @@
 
 
   // Static S3 dashboard: role-based controls are UI guidance, NOT secure authorisation.
-  const venueUI = {active:'events',fixtures:[],xml:[],omissions:{},priorities:{P5:{},HATF:{}},draft:{P5:{},HATF:{}},loaded:false,importName:''};
+  const venueUI = {active:'events',xml:[],omissions:{},priorities:{P5:{},HATF:{}},draft:{P5:{},HATF:{}},loaded:false,importName:''};
   const ve = id => document.getElementById(id);
   const sportDateTime = iso => iso ? new Intl.DateTimeFormat('en-AU',{weekday:'short',day:'numeric',month:'short',hour:'numeric',minute:'2-digit',timeZone:'Australia/Melbourne'}).format(new Date(iso)) : 'TBC';
   const samMode = () => !!state.user && state.user.username==='sam';
   const managerMode = () => !!state.user && ['admin','manager'].includes(state.user.role);
   const userVenueAccess = venue => !!state.user && (state.user.role==='admin' || (state.user.allowedVenues||[]).includes('ALL') || (state.user.allowedVenues||[]).includes(venue));
-  const fixtureId = r => r.xml_id ? 'xml:'+r.xml_id+'|'+String(r.match_start_local||'') : String(r.match_id||'')+'|'+String(r.match_start_local||'');
-  const startMs = r => Date.parse(r.match_start_local||'');
+  const fixtureId = r => 'xml:'+r.xml_id+'|'+String(r.coverage_start_local||r.match_start_local||'')+'|'+String(r.channel||'');
+  const startMs = r => Date.parse(r.coverage_start_local||r.match_start_local||'');
+  const endMs = r => Date.parse(r.coverage_end_local||'');
   function validVenueFixture(r,venue){
-    const ms=startMs(r);if(!Number.isFinite(ms)||(!r.match_id&&!r.xml_id)|| (r.xml_id&&isOmitted(r)))return false;
+    const ms=startMs(r);if(!Number.isFinite(ms)||!r.xml_id|| (r.xml_id&&isOmitted(r)))return false;
     if(['replay','highlights_or_replay','studio_or_preview'].includes(r.broadcast_type))return false;
-    // XMLTV's Sports category also includes recorded shows; never silently present
-    // these as live screening options. They remain visible in XMLTV Review.
-    if(r.xml_id){
-      const info=[r.teams,r.epg_subtitle,r.description].filter(Boolean).join(' ').toLowerCase();
-      if(/\b(replay|repeat|highlights?|recap|best moments|previously shown|pre-game|post-game|preview|sports show|speedweek|review of)\b/.test(info))return false;
-    }
     const parts=new Intl.DateTimeFormat('en-AU',{timeZone:'Australia/Melbourne',weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(ms));
     const v=Object.fromEntries(parts.map(x=>[x.type,x.value]));const minutes=Number(v.hour)*60+Number(v.minute);
     return venue==='P5'?(minutes>=600&&minutes<=1320):(['Mon','Tue','Wed','Thu','Fri'].includes(v.weekday)&&minutes>=390&&minutes<=1320);
   }
-  function eventTitle(r){return r.teams||r.strEvent||r.sportsdb_event||'Sporting event';}
+  function eventTitle(r){return r.teams||r.epg_subtitle||r.epg_title||'Sporting programme';}
   // A programme title is an enduring omission rule across channels, subtitles and dates.
   const normXMLTitle = value => String(value||'').normalize('NFKC').trim().replace(/\s+/g,' ').toLocaleLowerCase('en-AU');
   const titleRule = r => 'title:'+normXMLTitle(r.epg_title||r.teams||r.strEvent||'');
@@ -1922,39 +1918,37 @@
     // Backwards compatibility with V22 channel+subtitle omission keys.
     (venueUI.omissions[titleRule(r)]!==false && venueUI.omissions[r.xml_id]===true);
 
-  // When no broadcast end is supplied, use an explicit *estimated* two-hour screening block
-  // for clash detection. The actual end of an event may differ.
-  const ESTIMATED_EVENT_MINUTES = 120;
+  // No guessed durations: overlapping XMLTV broadcast intervals only.
   function overlappingGroups(rows){
     const distinct=new Map();for(const r of rows){const id=fixtureId(r);if(!distinct.has(id))distinct.set(id,r);}
-    const events=[...distinct.entries()].map(([id,r])=>({id,start:startMs(r),end:startMs(r)+ESTIMATED_EVENT_MINUTES*60000})).sort((a,b)=>a.start-b.start);
-    const groups=[];let current=[],lastEnd=-Infinity;
-    for(const e of events){if(current.length&&e.start>=lastEnd){if(current.length>1)groups.push(current);current=[];lastEnd=-Infinity;}
-      current.push(e);lastEnd=Math.max(lastEnd,e.end);
+    const events=[...distinct.entries()].map(([id,r])=>({id,start:startMs(r),end:endMs(r)}))
+      .filter(e=>Number.isFinite(e.start)&&Number.isFinite(e.end)&&e.end>e.start);
+    const adjacency=new Map(events.map(e=>[e.id,new Set()]));
+    for(let i=0;i<events.length;i++)for(let j=i+1;j<events.length;j++){
+      const a=events[i],b=events[j];if(a.start<b.end&&b.start<a.end){adjacency.get(a.id).add(b.id);adjacency.get(b.id).add(a.id);}
     }
-    if(current.length>1)groups.push(current);
-    const lookup=new Map();for(const group of groups)for(const e of group)lookup.set(e.id,group.map(x=>x.id));
+    const lookup=new Map();for(const [id,neighbors] of adjacency)if(neighbors.size)lookup.set(id,[id,...neighbors]);
     return lookup;
   }
-  function allVenueRows(venue){return [...venueUI.fixtures,...venueUI.xml].filter(r=>validVenueFixture(r,venue));}
+  function allVenueRows(venue){return venueUI.xml.filter(r=>validVenueFixture(r,venue));}
   function currentPriority(venue,id){return (venueUI.draft[venue]||{})[id]===true||(venueUI.priorities[venue]||{})[id]===true && (venueUI.draft[venue]||{})[id]!==false;}
   function openVenueTab(name){
-    if(name!=='events'&& !(['xml','omitted'].includes(name)?samMode():userVenueAccess(name)))return;
-    venueUI.active=name;ve('eventsView').style.display=name==='events'?'':'none';ve('venueSports').style.display=['P5','HATF'].includes(name)?'block':'none';ve('xmlAudit').style.display=['xml','omitted'].includes(name)?'block':'none';
-    for(const [b,n] of [['tabEvents','events'],['tabP5','P5'],['tabHATF','HATF'],['tabXML','xml'],['tabOmitted','omitted']])ve(b).classList.toggle('is-active',name===n);
-    if(['xml','omitted'].includes(name)){renderXMLAudit();}
+    if(name!=='events'&& !(name==='omitted'?samMode():userVenueAccess(name)))return;
+    venueUI.active=name;ve('eventsView').style.display=name==='events'?'':'none';ve('venueSports').style.display=['P5','HATF'].includes(name)?'block':'none';ve('xmlAudit').style.display=name==='omitted'?'block':'none';
+    for(const [b,n] of [['tabEvents','events'],['tabP5','P5'],['tabHATF','HATF'],['tabOmitted','omitted']])ve(b).classList.toggle('is-active',name===n);
+    if(name==='omitted'){renderXMLAudit();}
     if(['P5','HATF'].includes(name)){
       ve('venueHeading').textContent=name==='P5'?'Live Sport P5':'Live Sport HATF';
       ve('venueRules').textContent=name==='P5'?'Plus 5: daily, 10:00 am–10:00 pm':'Henry and the Fox: Monday–Friday, 6:30 am–10:00 pm';
-      ve('venueManagerActions').style.display=managerMode()?'flex':'none';renderVenueRows();
+      ve('venueManagerActions').style.display=managerMode()?'flex':'none';ve('venueOmitActions').style.display=samMode()?'flex':'none';renderVenueRows();
     }
   }
   function syncVenueVisibility(){
     ve('venueTabs').style.display=state.user?'flex':'none';
     ve('tabP5').style.display=userVenueAccess('P5')?'':'none';
     ve('tabHATF').style.display=userVenueAccess('HATF')?'':'none';
-    ve('tabXML').style.display=samMode()?'':'none';ve('tabOmitted').style.display=samMode()?'':'none';
-    if(!state.user || (venueUI.active!=='events'&& !(['xml','omitted'].includes(venueUI.active)?samMode():userVenueAccess(venueUI.active))))openVenueTab('events');
+    ve('tabOmitted').style.display=samMode()?'':'none';
+    if(!state.user || (venueUI.active!=='events'&& !(venueUI.active==='omitted'?samMode():userVenueAccess(venueUI.active))))openVenueTab('events');
   }
   function sportChoices(select,values,placeholder){
     const current=select.value;select.innerHTML='<option value="">'+placeholder+'</option>'+Array.from(new Set(values.filter(Boolean))).sort().map(x=>'<option value="'+escapeHtml(x)+'">'+escapeHtml(x)+'</option>').join('');
@@ -1966,49 +1960,44 @@
     }catch(_){return '';}
   }
   function renderVenueRows(){
-    if(venueUI.active==='events')return;
+    if(!['P5','HATF'].includes(venueUI.active))return;
     const venue=venueUI.active,whole=allVenueRows(venue),clashes=overlappingGroups(whole);
-    const bySport=r=>r.strSport||r.sport||'Unknown';
-    sportChoices(ve('venueSport'),whole.map(bySport),'All sports');
-    sportChoices(ve('venueDate'),whole.map(r=>(r.match_start_local||'').slice(0,10)),'All dates');
+    sportChoices(ve('venueDate'),whole.map(r=>(r.coverage_start_local||'').slice(0,10)),'All dates');
     const q=ve('venueSearch').value.toLowerCase().trim();
-    const rows=whole.filter(r=>(!ve('venueSport').value||bySport(r)===ve('venueSport').value)&&
-      (!ve('venueDate').value||(r.match_start_local||'').startsWith(ve('venueDate').value))&&
-      (!q||[eventTitle(r),r.epg_subtitle,r.strSport,r.sport,r.competition,r.channel].join(' ').toLowerCase().includes(q))&&
+    const rows=whole.filter(r=>(!ve('venueDate').value||(r.coverage_start_local||'').startsWith(ve('venueDate').value))&&
+      (!q||[eventTitle(r),r.epg_title,r.epg_subtitle,r.description,r.channel].join(' ').toLowerCase().includes(q))&&
       (!ve('venueOnlySelected').checked||currentPriority(venue,fixtureId(r))));
     const priorityCount=new Set(whole.filter(r=>currentPriority(venue,fixtureId(r))).map(fixtureId)).size;
-    ve('venueSummary').textContent=`${rows.length} free-to-air listings · ${clashes.size} fixture(s) with potential clashes · ${priorityCount} screening priority selection(s)`;
+    ve('venueSummary').textContent=`${rows.length} XMLTV broadcasts · ${clashes.size} listings with broadcast-time clashes · ${priorityCount} screening priority selections`;
+    const omitHead=document.querySelector('.sam-only-omit');if(omitHead)omitHead.style.display=samMode()?'':'none';
     ve('venueRows').innerHTML=rows.length?rows.map(r=>{
-      const key=fixtureId(r),conflicts=clashes.get(key),priority=currentPriority(venue,key);
+      const key=fixtureId(r),conflicts=clashes.get(key),priority=currentPriority(venue,key),label=r.epg_title||eventTitle(r);
       let preference='—';
       if(conflicts){
         if(managerMode())preference=`<label class="venue-check"><input type="checkbox" data-priority-key="${escapeHtml(key)}" ${priority?'checked':''}> Preferred screening</label>`;
         else preference=priority?'<span class="sport-priority">Preferred screening</span>':'—';
-        preference+='<span class="sport-clash">Potential clash · estimated 2-hour duration</span>';
+        preference+='<span class="sport-clash">Broadcast time clash</span>';
       }
-      return `<tr>
-        <td><div class="sport-event"><div class="sport-event-details"><strong>${escapeHtml(eventTitle(r))}</strong>${r.xml_id&&r.epg_subtitle?`<span class="sport-subtitle">${escapeHtml(r.epg_subtitle)}</span>`:''}</div>${r.is_new===true?'<span class="sport-new">NEW</span>':''}</div></td>
-        <td>${escapeHtml(bySport(r))}<div class="small">${escapeHtml(r.competition||'')}</div></td>
-        <td>${escapeHtml(sportDateTime(r.match_start_local))}</td>
-        <td><div class="sport-channel">${r.xml_id?`<div class="xml-channel-stack">${safeSportsImage(r.strLogo||r.channel_logo,'sport-logo',r.channel||'Channel logo')||''}<span class="xml-channel-label">${escapeHtml(r.channel||'Unknown channel')}</span></div>`:(safeSportsImage(r.strLogo||r.channel_logo,'sport-logo',r.channel||'Channel logo')||'<span title="No TV logo available">—</span>')}</div></td>
-        <td>${preference}</td></tr>`;
-    }).join(''):'<tr><td colspan="5">No free-to-air fixtures for these filters.</td></tr>';
+      const detail=eventTitle(r)!==label?`<span class="sport-subtitle">${escapeHtml(eventTitle(r))}</span>`:'';
+      return `<tr><td><div class="sport-event-details"><strong>${escapeHtml(label)}</strong>${detail}</div></td>
+        <td>${escapeHtml(sportDateTime(r.coverage_start_local||r.match_start_local))}</td>
+        <td>${escapeHtml(r.channel||'Unknown channel')}</td>
+        <td>${preference}</td>
+        ${samMode()?`<td><label class="venue-check"><input type="checkbox" data-omit-title="${escapeHtml(titleRule(r))}"> Omit title</label></td>`:''}</tr>`;
+    }).join(''):'<tr><td colspan="5">No eligible XMLTV broadcasts for these filters.</td></tr>';
     ve('venueRows').querySelectorAll('[data-priority-key]').forEach(input=>input.addEventListener('change',()=>{
-      if(!managerMode())return;
-      const key=input.dataset.priorityKey,clash=clashes.get(key)||[];
-      // A priority is attached to the fixture (not broadcaster); choosing another
-      // priority in the same clash group clears the previous one.
-      if(input.checked)for(const id of clash)venueUI.draft[venue][id]=(id===key);
-      else venueUI.draft[venue][key]=false;
-      renderVenueRows();
+      if(!managerMode())return;const key=input.dataset.priorityKey,group=clashes.get(key)||[];
+      if(input.checked)for(const id of group)venueUI.draft[venue][id]=(id===key);
+      else venueUI.draft[venue][key]=false;renderVenueRows();
     }));
+    ve('venueRows').querySelectorAll('[data-omit-title]').forEach(input=>input.addEventListener('change',()=>setOmission(input.dataset.omitTitle,input.checked)));
   }
   ve('tabEvents').addEventListener('click',()=>openVenueTab('events'));
   ve('tabP5').addEventListener('click',()=>openVenueTab('P5'));
   ve('tabHATF').addEventListener('click',()=>openVenueTab('HATF'));
-  ve('tabXML').addEventListener('click',()=>openVenueTab('xml'));
+
   ve('tabOmitted').addEventListener('click',()=>openVenueTab('omitted'));
-  for(const id of ['venueSport','venueDate','venueSearch','venueOnlySelected'])ve(id).addEventListener(id==='venueSearch'?'input':'change',renderVenueRows);
+  for(const id of ['venueDate','venueSearch','venueOnlySelected'])ve(id).addEventListener(id==='venueSearch'?'input':'change',renderVenueRows);
   async function loadPriorities(){
     try{
       const response=await fetch('/internal/sports/priorities.json',{cache:'no-store'});
@@ -2050,51 +2039,43 @@
     renderXMLAudit();if(['P5','HATF'].includes(venueUI.active))renderVenueRows();
   }
   function renderXMLAudit(){
-    if(!['xml','omitted'].includes(venueUI.active))return;
-    const omittedTab=venueUI.active==='omitted';
-    ve('xmlAuditHeading').textContent=omittedTab?'Omitted Programmes':'XMLTV Review';
-    ve('xmlAuditNotice').textContent=omittedTab?'These title-wide rules also apply to future XMLTV scrapes. Uncheck to restore a title.':'Omit a title across every channel, subtitle, date and future XMLTV scrape.';
-    const all=venueUI.xml;
-    sportChoices(ve('xmlAuditChannel'),all.map(x=>x.channel),'All channels');
+    if(venueUI.active!=='omitted')return;
+    ve('xmlAuditHeading').textContent='Omitted Programmes';
+    ve('xmlAuditNotice').textContent='These title-wide rules also apply to future XMLTV scrapes. Uncheck to restore a title.';
+    sportChoices(ve('xmlAuditChannel'),venueUI.xml.map(x=>x.channel),'All channels');
     const q=ve('xmlAuditSearch').value.trim().toLowerCase(),ch=ve('xmlAuditChannel').value;
     const seen=new Set();
-    let rows=all.filter(r=>{
-      const omitted=isOmitted(r);if(omittedTab!==omitted)return false;
-      if(ch&&ch!==r.channel)return false;
-      if(q&&![eventTitle(r),r.sport,r.channel,r.epg_subtitle,r.description].join(' ').toLowerCase().includes(q))return false;
-      if(omittedTab){const key=titleRule(r);if(seen.has(key))return false;seen.add(key);}
-      return true;
-    }).sort((a,b)=>(a.match_start_local||'').localeCompare(b.match_start_local||''));
-    // Keep old omissions visible even if the programme is absent from this week's XML feed.
-    if(omittedTab&&!ch){
+    let rows=venueUI.xml.filter(r=>{
+      if(!isOmitted(r)||ch&&ch!==r.channel)return false;
+      if(q&&![eventTitle(r),r.epg_title,r.epg_subtitle,r.channel,r.description].join(' ').toLowerCase().includes(q))return false;
+      const key=titleRule(r);if(seen.has(key))return false;seen.add(key);return true;
+    });
+    if(!ch){
       const absent=Object.entries(venueUI.omissions).filter(([key,on])=>key.startsWith('title:')&&on&&!seen.has(key))
-        .map(([key])=>({teams:key.slice(6),epg_title:key.slice(6),channel:'',description:'Not in the current XMLTV feed. This title will be omitted if it returns.',xml_id:'',match_start_local:null,_titleRule:key}));
-      rows=[...rows,...absent.filter(r=>!q||eventTitle(r).toLowerCase().includes(q))];
+        .map(([key])=>({teams:key.slice(6),epg_title:key.slice(6),channel:'',description:'Not in the current XMLTV feed. This title will be omitted if it returns.',_titleRule:key}));
+      rows.push(...absent.filter(r=>!q||eventTitle(r).toLowerCase().includes(q)));
     }
-    ve('xmlAuditSummary').textContent=`${rows.length} ${omittedTab?'omitted titles':'XMLTV listings'} · ${all.length} total XMLTV listings`;
+    ve('xmlAuditSummary').textContent=`${rows.length} omitted titles · ${venueUI.xml.length} XMLTV listings`;
     ve('xmlAuditRows').innerHTML=rows.length?rows.map(r=>{
-      const key=r._titleRule||titleRule(r);
-      const label=r.channel||'—';
-      const logo=safeSportsImage(r.strLogo||r.channel_logo,'sport-logo',label);
-      const description=r.description||'No XMLTV description supplied';
-      return `<tr><td><strong>${escapeHtml(eventTitle(r))}</strong><div class="small">${escapeHtml(r.epg_subtitle||'')}</div></td>
-        <td>${escapeHtml(r.strSport||r.sport||'Sports')}</td>
-        <td>${r.match_start_local?escapeHtml(sportDateTime(r.match_start_local)):'—'}</td>
-        <td><div class="xml-channel-stack">${logo||''}<span class="xml-channel-label">${escapeHtml(label)}</span></div></td>
-        <td><details class="xml-description"><summary aria-label="Read programme description" title="XMLTV description">Info</summary><div class="xml-description-body">${escapeHtml(description)}</div></details></td>
-        <td><label class="venue-check"><input type="checkbox" data-omit-title="${escapeHtml(key)}" ${isOmitted(r)?'checked':''}> Omit</label></td></tr>`;
-    }).join(''):'<tr><td colspan="6">No programmes match this view.</td></tr>';
+      const key=r._titleRule||titleRule(r);return `<tr><td><strong>${escapeHtml(r.epg_title||eventTitle(r))}</strong><div class="small">${escapeHtml(r.epg_subtitle||'')}</div></td>
+        <td>${r.coverage_start_local?escapeHtml(sportDateTime(r.coverage_start_local)):'—'}</td>
+        <td>${escapeHtml(r.channel||'—')}</td>
+        <td><details class="xml-description"><summary>Info</summary><div class="xml-description-body">${escapeHtml(r.description||'No description')}</div></details></td>
+        <td><label class="venue-check"><input type="checkbox" data-omit-title="${escapeHtml(key)}" checked> Omitted</label></td></tr>`;
+    }).join(''):'<tr><td colspan="5">No omitted programmes match this view.</td></tr>';
     ve('xmlAuditRows').querySelectorAll('[data-omit-title]').forEach(el=>el.addEventListener('change',()=>setOmission(el.dataset.omitTitle,el.checked)));
   }
   for(const id of ['xmlAuditSearch','xmlAuditChannel'])ve(id).addEventListener(id==='xmlAuditSearch'?'input':'change',renderXMLAudit);
-  ve('xmlExportOmissions').addEventListener('click',()=>{
+  function exportOmissions(){
     if(!samMode())return;
     const payload={version:1,updated_at:new Date().toISOString(),omissions:venueUI.omissions};
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
     const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='sports-omissions.json';link.click();
     setTimeout(()=>URL.revokeObjectURL(link.href),2000);
-    ve('xmlAuditNotice').textContent='Downloaded sports-omissions.json. Upload to s3://event-scrape-data/internal/sports/omissions.json to share with all devices.';
-  });
+    ve('xmlAuditNotice').textContent='Downloaded sports-omissions.json. Upload to S3 for shared omissions.';
+  }
+  ve('xmlExportOmissions').addEventListener('click',exportOmissions);
+  ve('venueExportOmissions').addEventListener('click',exportOmissions);
   async function loadXMLTV(){
     try{const r=await fetch('/internal/sports/xmltv-latest.json',{cache:'no-store'});
       if(!r.ok)throw new Error(`HTTP ${r.status}`);const data=await r.json();
@@ -2110,15 +2091,9 @@
   let sportsLoading=false;
   async function loadLatestSports(){
     if(sportsLoading||!state.user)return;
-    sportsLoading=true;ve('venueSummary').textContent='Loading sports fixtures…';
-    try{
-      const response=await fetch('/internal/sports/latest.json',{cache:'no-store'});
-      if(!response.ok)throw new Error('Sports feed unavailable ('+response.status+')');
-      const payload=await response.json();if(!Array.isArray(payload.fixtures))throw new Error('Invalid sports feed');
-      venueUI.fixtures=payload.fixtures.filter(r=>r&&r.match_id);
-      await Promise.all([loadPriorities(),loadOmissions(),loadXMLTV()]);renderVenueRows();
-    }catch(error){ve('venueSummary').textContent='Could not load sports fixtures: '+error.message;}
-    finally{sportsLoading=false;}
+    sportsLoading=true;ve('venueSummary').textContent='Loading XMLTV broadcasts…';
+    await Promise.all([loadPriorities(),loadOmissions(),loadXMLTV()]);
+    renderVenueRows();sportsLoading=false;
   }
   const originalAuthUpdate=updateAuthUI;
   updateAuthUI=function(){originalAuthUpdate();syncVenueVisibility();if(state.user)loadLatestSports();};
