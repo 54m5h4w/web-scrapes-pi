@@ -1,235 +1,216 @@
-﻿#!/usr/bin/env python3
-"""XMLTV Melbourne coverage-first + TheSportsDB fixture enrichment.
-Never manufactures kick-off times; uncertain matches stay unverified.
+#!/usr/bin/env python3
+"""TheSportsDB-only Australian broadcast feed. No XMLTV calls or invented TV times.
+
+Uses premium /api/v2/json/filter/tv/country/australia. Only sports that
+TheSportsDB lists as Australian TV broadcasts with Australian TV
+channel labels are included. TV availability is provisional, not guaranteed.
 """
 import argparse
-import csv
-import datetime as dt
+from collections import Counter
+from datetime import datetime, timedelta, timezone
 import json
 import os
-import re
-import urllib.parse
-import urllib.request
-import xml.etree.ElementTree as ET
-from collections import Counter
 from pathlib import Path
+import re
+import urllib.request
 from zoneinfo import ZoneInfo
 
-MEL = ZoneInfo("Australia/Melbourne")
-UTC = dt.timezone.utc
-EPG_URL = "https://xmltv.net/xml_files/Melbourne.xml"
-SPORTS = {
-    "rugby league": "Rugby", "nrl": "Rugby", "a-league": "Soccer",
-    "football": "Soccer", "soccer": "Soccer", "australian championship": "Soccer", "afl": "Australian Football",
-    "cricket": "Cricket", "basketball": "Basketball", "nbl": "Basketball",
-    "nfl": "American Football", "american football": "American Football",
-    "tennis": "Tennis", "moto": "Motorsport", "grand prix": "Motorsport",
-}
-NON_LIVE = ("highlights", "replay", "encore", "best moments", "best of", "review",
-            "sports tonight", "offsiders", "pre-game", "post-game", "speedweek", "agenda setters", "weekly kick off", "panel", "discussion", "recap", "roundup", "round-up",
-            "ifish", "escape fishing", "horse racing preview", "fishing", "ifish", "sport report")
-CATEGORIES = {"sports", "sport"}
-CHANNEL_EQUIV = [
-    ("7mate", "7mate"), ("7two", "7TWO"), ("7flix", "7flix"), ("7", "7"),
-    ("9gem", "9Gem"), ("9go", "9Go!"), ("9life", "9Life"), ("9", "9"),
-    ("10", "10"), ("abc", "ABC"), ("sbs", "SBS"), ("nitv", "NITV")
-]
-BLOCKS = {"news", "drama", "comedy", "special interest", "children", "documentary"}
-TEAM_NOISE = {"fc","women","men","rlfc","rugby","league","football","the","club"}
-def parse_time(value):
-    return dt.datetime.strptime(value.strip(), "%Y%m%d%H%M%S %z").astimezone(MEL)
-def normalized(s):
-    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
-def name_tokens(s):
-    return {x for x in normalized(s).split() if len(x)>2 and x not in TEAM_NOISE}
-def channel_family(name):
-    n=normalized(name).replace(" ", "")
-    if "+1" in (name or ""): return None
-    for prefix, family in CHANNEL_EQUIV:
-        if n.startswith(prefix):return family
-    return None
-def read_xml(source):
-    if source.startswith("https://"):
-        request = urllib.request.Request(
-        source,
-        headers={
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36"
-            ),
-            "Accept": "*/*",
-        },
-    )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return response.read()
-    return Path(source).read_bytes()
-def broadcast_type(title, subtitle, description, previously_shown=False):
-    """Classify evidence from EPG only. A fixture match is not proof of live TV."""
-    heading=normalized(' '.join((title,subtitle)))
-    details=normalized(description)
-    if re.search(r"\b(highlights?|replays?|encore|repeat|rerun|best moments|best of)\b",heading) or re.search(r"\b(highlights?|replays?|previously recorded|recorded coverage)\b",details):
-        return 'highlights_or_replay', 'epg_text'
-    if previously_shown:
-        return 'replay', 'xmltv_previously_shown'
-    if re.search(r"\b(pre game|post game|preview|sports tonight|offsiders|panel|discussion|review show|speedweek|agenda setters|weekly kick off|fishing|ifish)\b",heading) or re.search(r"\b(comprehensive motorsport show|sports magazine|covers many forms of|discussion programme|talking points)\b",details):
-        return 'studio_or_preview', 'epg_title'
-    if re.search(r"\b(live)\b",heading) or re.search(r"\b(live coverage|live broadcast|broadcast live)\b",details):
-        return 'live_labelled', 'epg_text'
-    return 'unknown', 'not_specified'
+MEL = ZoneInfo('Australia/Melbourne')
+API_URL = 'https://www.thesportsdb.com/api/v2/json/filter/tv/country/australia'
+BLOCKED = re.compile(r'\b(?:sydney|brisbane|perth|adelaide|darwin|hobart|tasmania|queensland|western australia|south australia|new south wales|nsw|wa|sa|qld)\b', re.I)
+MELBOURNE = re.compile(r'\b(?:melbourne|victoria|vic)\b', re.I)
+NETWORKS = re.compile(r'^(?:(?:7(?:mate|two|flix|plus)?|seven)|(?:9(?:go!?|gem|life|rush)?|nine)|(?:10|ten)(?:\s+(?:bold|peach|shake|drama))?|sbs(?:\s*\d+)?|abc(?:\s*\w+)?)\b', re.I)
+REPLAY = re.compile(r'\b(?:replay|repeat|highlights?|recap|review|best of|previously shown|delayed coverage)\b', re.I)
 
-def programmes_from_xml(payload, start_date=None, days=7):
-    root=ET.fromstring(payload)
-    channels={}
-    for c in root.findall("channel"):
-        channels[c.attrib["id"]]=(c.findtext("display-name") or c.attrib["id"], c.findtext("lcn") or "")
-    out=[]; seen=set()
-    for elem in root.findall("programme"):
-        rawchan=elem.get("channel","")
-        ch,lcn=channels.get(rawchan,(rawchan,""))
-        family=channel_family(ch)
-        if not family:continue
-        begin=elem.get("start"); finish=elem.get("stop")
-        if not begin or not finish:continue
-        try: start,end=parse_time(begin),parse_time(finish)
-        except ValueError:continue
-        if start_date and not start_date<=start.date()<start_date+dt.timedelta(days=days):continue
-        if not (7 <= start.hour < 22):continue
-        title=(elem.findtext("title") or "").strip()
-        subtitle=(elem.findtext("sub-title") or "").strip()
-        desc=(elem.findtext("desc") or "").strip()
-        categories=[(e.text or "").strip() for e in elem.findall("category")]
-        if not any(x.lower() in CATEGORIES for x in categories):continue
-        if not title or title.lower() in {"tba","to be advised"}:continue
-        key=(family,start.isoformat(),normalized(title),normalized(subtitle))
-        if key in seen:continue
-        seen.add(key)
-        btype,reason=broadcast_type(title,subtitle,desc,elem.find("previously-shown") is not None)
-        kind="replay_or_other" if btype in ("highlights_or_replay","replay","studio_or_preview") else "sports_programme"
-        sport=next((v for k,v in SPORTS.items() if k in normalized(title+" "+subtitle)),None)
-        out.append({"epg_title":title,"epg_subtitle":subtitle,"description":desc,
-            "sport_hint":sport,"channel":ch,"channel_family":family,"lcn":lcn,
-            "coverage_start_local":start.isoformat(),"coverage_end_local":end.isoformat(),
-            "category":categories,"programme_type":kind,
-            "broadcast_type":btype,"broadcast_type_evidence":reason,
-            "match_start_local":None,"match_id":None,"teams":None,
-            "match_status":"not_checked","source":"XMLTV Melbourne"})
-    return sorted(out,key=lambda x:(x["coverage_start_local"],x["channel_family"]))
-def api_rows(payload):
-    for k in ("events","event","results"):
-        if isinstance(payload.get(k),list):return payload[k]
+
+def get(row, *names):
+    for n in names:
+        v = row.get(n)
+        if v is not None and str(v).strip():
+            return str(v).strip()
+    return ''
+
+
+def unwrap(payload):
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        for key in ('tv', 'tvevents', 'filter', 'events', 'data'):
+            v = payload.get(key)
+            if isinstance(v, list):
+                return v
+        arrays = [v for v in payload.values() if isinstance(v, list)]
+        return arrays[0] if len(arrays) == 1 else []
     return []
-def sportsdb_event_time(event):
-    timestamp=event.get("strTimestamp") or event.get("strTimeStamp")
-    if timestamp:
-        d=dt.datetime.fromisoformat(timestamp.replace("Z","+00:00"))
-        if d.tzinfo is None:d=d.replace(tzinfo=UTC)
-        return d.astimezone(MEL)
-    date,t=event.get("dateEvent"),event.get("strTime")
-    if not date or not t:return None
-    try:return dt.datetime.fromisoformat(f"{date}T{t}").replace(tzinfo=UTC).astimezone(MEL)
-    except ValueError:return None
-def call_sportsdb(date,sport,key):
-    params=urllib.parse.urlencode({"d":date.isoformat(),"s":sport})
-    url=f"https://www.thesportsdb.com/api/v1/json/{urllib.parse.quote(key,safe='')}/eventsday.php?{params}"
-    with urllib.request.urlopen(urllib.request.Request(url,headers={"User-Agent":"MelbourneSports/12"}),timeout=35) as response:
-        return api_rows(json.load(response))
-def candidate_teams(row):
-    # Subtitle may contain "Avondale FC V Broadmeadow Magic FC: Round 2".
-    subtitle=re.split(r":| - Round",row["epg_subtitle"])[0]
-    parts=re.split(r"\s+(?:vs?\.?|versus)\s+",subtitle,flags=re.I)
-    if len(parts)!=2:return None
-    return parts[0].strip(),parts[1].strip()
-def match_fixture(row,fixtures):
-    teams=candidate_teams(row)
-    if not teams:return None,"no_team_pair_in_xml"
-    start=dt.datetime.fromisoformat(row["coverage_start_local"])
-    end=dt.datetime.fromisoformat(row["coverage_end_local"])
-    candidates=[]
-    for e in fixtures:
-        home=e.get("strHomeTeam") or ""
-        away=e.get("strAwayTeam") or ""
-        if not home or not away:continue
-        exact=(name_tokens(teams[0]) & name_tokens(home) and name_tokens(teams[1]) & name_tokens(away))
-        reverse=(name_tokens(teams[1]) & name_tokens(home) and name_tokens(teams[0]) & name_tokens(away))
-        if not (exact or reverse):continue
-        st=sportsdb_event_time(e)
-        if not st:continue
-        if not start-dt.timedelta(minutes=20)<=st<=end+dt.timedelta(minutes=10):continue
-        candidates.append((e,st))
-    ids={str(e.get("idEvent")) for e,_ in candidates}
-    if len(ids)!=1:return None,("ambiguous" if ids else "fixture_not_found")
-    e,st=candidates[0]
-    return {"id":e.get("idEvent"),"start":st.isoformat(),
-            "home":e.get("strHomeTeam"),"away":e.get("strAwayTeam"),
-            "competition":e.get("strLeague"),"sport":e.get("strSport") or row.get("sport_hint")}, "matched_unique_teams_and_slot"
-def enrich(rows,key,fetch=call_sportsdb):
-    cache={};warnings=[]
-    for row in rows:
-        if row["programme_type"]!="sports_programme":
-            row["match_status"]="excluded_from_live";continue
-        if not candidate_teams(row):
-            row["match_status"]="no_team_pair_in_xml";continue
-        sport=row["sport_hint"]
-        if not sport:
-            row["match_status"]="sport_not_identified";continue
-        date=dt.datetime.fromisoformat(row["coverage_start_local"]).date()
-        pool=[]
-        for d in (date-dt.timedelta(days=1),date,date+dt.timedelta(days=1)):
-            keycache=(d.isoformat(),sport)
-            if keycache not in cache:
-                try:cache[keycache]=fetch(d,sport,key)
-                except Exception as e:
-                    cache[keycache]=[]
-                    warnings.append(f"SportsDB lookup {d} {sport} failed: {type(e).__name__}: {e}")
-            pool+=cache[keycache]
-        matched,status=match_fixture(row,pool)
-        row["match_status"]=status
-        if matched:
-            row["match_id"]=matched["id"]
-            row["match_start_local"]=matched["start"]
-            row["teams"]=matched["home"]+" vs "+matched["away"]
-            row["competition"]=matched["competition"]
-            row["sport"]=matched["sport"]
-            row["broadcast_type"]="live_fixture_matched"
-            row["broadcast_type_evidence"]="sportsdb_unique_fixture_in_epg_slot"
-    return warnings,len(cache)
-def main():
-    p=argparse.ArgumentParser()
-    p.add_argument("--xml",default=EPG_URL,help="Local Melbourne.xml path or https URL")
-    p.add_argument("--date",help="YYYY-MM-DD start date")
-    p.add_argument("--days",type=int,default=7)
-    p.add_argument("--local-only",action="store_true")
-    p.add_argument("--epg-only",action="store_true",help="No SportsDB calls; test EPG parsing")
-    p.add_argument("--output",default="data/sports-tv.json")
-    args=p.parse_args()
-    if not 1<=args.days<=14:p.error("--days must be 1..14")
-    date=dt.date.fromisoformat(args.date) if args.date else dt.datetime.now(MEL).date()
-    rows=programmes_from_xml(read_xml(args.xml),date,args.days)
-    warnings=[]; queries=0
-    if not args.epg_only:
-        key=os.environ.get("SPORTSDB_API_KEY","").strip()
-        if not key:p.error("SPORTSDB_API_KEY missing; set env var or use --epg-only")
-        warnings,queries=enrich(rows,key)
-    matched=[r for r in rows if r["match_id"] and r["programme_type"]=="sports_programme" and r["broadcast_type"] not in ("replay","highlights_or_replay","studio_or_preview")]
-    for r in matched:
-        if r.get("sport")=="Rugby" and "rugby league" in (r.get("epg_title","")+" "+r.get("competition","")).lower(): r["sport"]="Rugby League"
-        elif r.get("sport")=="Soccer":r["sport"]="Football"
-    review=[r for r in rows if r not in matched]
-    result={"schema_version":14,"source":"XMLTV Melbourne + TheSportsDB",
-        "timezone":"Australia/Melbourne","date_from":date.isoformat(),"days":args.days,
-        "source_counts":{"epg_sports_programmes":len(rows),
-            "fixture_matches":len(matched),
-            "excluded_for_review":len(review),
-            "sportsdb_requests":queries,"match_status":dict(Counter(r["match_status"] for r in rows)),
-            "broadcast_types":dict(Counter(r["broadcast_type"] for r in rows))},
-        "fixtures":matched,"programmes":matched,"review":review,"warnings":warnings,
-        "verification_note":"Coverage times from XMLTV; game start only from TheSportsDB. Live-labelled is based on EPG text only; likely-live is an inference; EPG classification and matching are provisional; commercial screening rights not verified."}
-    target=Path(args.output);target.parent.mkdir(parents=True,exist_ok=True)
-    target.write_text(json.dumps(result,indent=2,ensure_ascii=False),encoding="utf-8")
-    review_path=target.with_name(target.stem+"-review.json")
-    review_path.write_text(json.dumps({"source":"XMLTV", "review":review,"warnings":warnings},indent=2,ensure_ascii=False),encoding="utf-8")
-    print("Saved matched schedule",target,"and review",review_path)
-    print("Counts:",json.dumps(result["source_counts"]))
-    for w in warnings:print("WARNING",w)
-if __name__=="__main__":main()
 
+
+def fetch(key):
+    req = urllib.request.Request(API_URL, headers={
+        'X-API-KEY': key, 'Accept': 'application/json',
+        'User-Agent': 'MelbourneSportsCollector/1.0',
+    })
+    with urllib.request.urlopen(req, timeout=45) as resp:
+        payload = json.load(resp)
+    records = unwrap(payload)
+    if not isinstance(records, list):
+        raise RuntimeError('Unexpected SportsDB TV response')
+    return records
+
+
+def time_local(row):
+    """SportsDB fixture timestamp is UTC; dateEvent + strTime also UTC."""
+    stamp = get(row, 'strTimestamp', 'strTimeStamp', 'dateTime', 'strDateTime')
+    if not stamp:
+        date = get(row, 'dateEvent', 'date')
+        clock = get(row, 'strTime', 'time')
+        if date and clock:
+            stamp = date + 'T' + clock
+        elif date:
+            stamp = date + 'T00:00:00'
+        else:
+            return None
+    try:
+        parsed = datetime.fromisoformat(stamp.replace('Z', '+00:00'))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(MEL)
+    except ValueError:
+        return None
+
+
+def assess_channel(label):
+    label = label.strip()
+    if not label:
+        return 'missing_channel'
+    if BLOCKED.search(label):
+        return 'interstate_channel'
+    if MELBOURNE.search(label):
+        return 'melbourne_labelled'
+    if NETWORKS.search(label):
+        return 'national_network_unverified'
+    return 'unknown_channel_region'
+
+
+def convert(row, today, until, include_unknown_channels=False):
+    if not isinstance(row, dict):
+        return None, 'malformed_record'
+    channel = get(row, 'strChannel', 'strTVChannel', 'channel', 'strTV')
+    channel_status = assess_channel(channel)
+    if channel_status in ('missing_channel', 'interstate_channel'):
+        return None, channel_status
+    start = time_local(row)
+    if start is None:
+        return None, 'missing_fixture_datetime'
+    if not today <= start.date() < until:
+        return None, 'outside_window'
+    # Only exclude recordings when explicitly labelled. Future-dated != proof of live broadcast.
+    title = get(row, 'strEvent', 'strMatch', 'event', 'title')
+    description = get(row, 'strDescriptionEN', 'strDescription')
+    status = get(row, 'strStatus', 'strTVStatus')
+    if REPLAY.search(' '.join((title, description, status))):
+        return None, 'recorded_or_highlights'
+    match_id = get(row, 'idEvent', 'eventId', 'id_event')
+    if not match_id:
+        return None, 'missing_event_id'
+    home = get(row, 'strHomeTeam', 'homeTeam')
+    away = get(row, 'strAwayTeam', 'awayTeam')
+    teams = ' vs '.join(x for x in (home, away) if x)
+    if not teams:
+        teams = title or 'Sporting event'
+    sport = get(row, 'strSport', 'sport') or 'Sport'
+    competition = get(row, 'strLeague', 'league')
+    return {
+        'match_id': match_id,
+        'teams': teams,
+        'sport': sport,  # Exact strSport, no renaming
+        'strSport': sport,
+        'event_thumb': get(row, 'strEventThumb'),
+        'strEventThumb': get(row, 'strEventThumb'),
+        'channel_logo': get(row, 'strLogo'),
+        'strLogo': get(row, 'strLogo'),
+        'competition': competition,
+        'channel': channel,
+        'channel_family': channel,
+        'match_start_local': start.isoformat(),
+        'coverage_start_local': None,
+        'coverage_end_local': None,
+        'broadcast_type': 'sportsdb_scheduled_tv_assignment',
+        'match_status': 'sportsdb_tv_assigned',
+        'tv_region_status': channel_status,
+        'tv_confirmation': 'SportsDB listing; verify broadcaster rights and live coverage',
+        'epg_title': None,
+        'source': 'TheSportsDB',
+        'sportsdb_event': title,
+        'strEvent': title,
+    }, 'included'
+
+
+def build(raw, date_from, days, include_unknown_channels=False):
+    until = date_from + timedelta(days=days)
+    fixtures, review, statuses = [], [], Counter()
+    seen = set()
+    for row in raw:
+        record, status = convert(row, date_from, until, include_unknown_channels)
+        statuses[status] += 1
+        if record:
+            k = (record['match_id'], record['channel'].casefold(), record['match_start_local'])
+            if k in seen:
+                statuses['duplicate'] += 1
+                continue
+            seen.add(k)
+            fixtures.append(record)
+        elif status != 'outside_window':
+            # Review deliberately contains only non-sensitive scheduling fields.
+            review.append({'reason': status,
+                           'event': get(row, 'strEvent', 'event', 'title') if isinstance(row,dict) else '',
+                           'channel': get(row, 'strChannel', 'channel') if isinstance(row,dict) else '',
+                           'event_id': get(row, 'idEvent') if isinstance(row,dict) else ''})
+    fixtures.sort(key=lambda r: (r['match_start_local'], r['sport'], r['teams']))
+    return fixtures, review, statuses
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--days', type=int, default=9)
+    ap.add_argument('--date', help='YYYY-MM-DD start date in Melbourne')
+    ap.add_argument('--local-only', action='store_true')
+    ap.add_argument('--output', default='data/sports-tv.json')
+    ap.add_argument('--xml', help='Ignored: SportsDB-only mode; kept for existing publisher compatibility')
+    ap.add_argument('--include-unknown-channels', action='store_true', help='Include TV channels not recognised as Melbourne/national; review first')
+    args = ap.parse_args()
+    if not 1 <= args.days <= 30:
+        ap.error('--days must be 1..30')
+    key = os.environ.get('SPORTSDB_API_KEY', '').strip()
+    if not key:
+        ap.error('SPORTSDB_API_KEY must be configured')
+    start = datetime.fromisoformat(args.date).date() if args.date else datetime.now(MEL).date()
+    raw = fetch(key)
+    if not raw:
+        raise SystemExit('SportsDB returned no TV assignments; refusing to create an empty publishable feed')
+    fixtures, review, statuses = build(raw, start, args.days, args.include_unknown_channels)
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    result = {
+        'schema_version': 16,
+        'source': 'TheSportsDB premium Australian TV assignments only',
+        'generated_at_utc': datetime.now(timezone.utc).isoformat(),
+        'timezone': 'Australia/Melbourne',
+        'date_from': start.isoformat(), 'days': args.days,
+        'source_counts': {
+            'sportsdb_tv_records': len(raw),
+            'fixture_matches': len(fixtures),
+            'excluded_for_review': len(review),
+            'match_status': dict(statuses),
+        },
+        'fixtures': fixtures, 'programmes': fixtures, 'review': review, 'warnings': [],
+        'verification_note': 'No XMLTV. Times are SportsDB fixture start, NOT broadcaster coverage. Country TV feed may be incomplete. Channel availability and live coverage not verified.',
+    }
+    output.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding='utf-8')
+    review_path = output.with_name(output.stem + '-review.json')
+    review_path.write_text(json.dumps({'source': result['source'], 'review': review}, indent=2, ensure_ascii=False), encoding='utf-8')
+    print('Saved SportsDB-only schedule', output, 'and review', review_path)
+    print('Counts:', json.dumps(result['source_counts']))
+    print('No XMLTV used. TV channels and live status are provisional.')
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,2002 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Event Data Explorer</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --border: #334155;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --chip: #1e293b;
+      --shadow: 0 10px 30px rgba(0,0,0,.25);
+      --radius: 16px;
+      --accent: #3b82f6;
+      --accent-soft: rgba(59, 130, 246, 0.18);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: linear-gradient(180deg, #0b1220 0%, #111827 100%);
+      color: var(--text);
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    .main {
+      padding: 24px;
+      max-width: 1500px;
+      margin: 0 auto;
+    }
+
+    .header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        "title actions"
+        "meta  meta";
+      gap: 10px 16px;
+      align-items: start;
+      margin-bottom: 18px;
+    }
+
+    .header-left {
+      grid-area: title;
+      min-width: 0;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 2rem;
+      line-height: 1.1;
+
+      /* 👇 key changes */
+      max-width: 900px;
+      text-wrap: balance;
+    }
+
+    .header-right {
+      grid-area: actions;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .header-meta {
+      grid-area: meta;
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.4;
+    }
+
+    .header-meta-item {
+      color: #cbd5e1;
+    }
+
+    .header-meta-item strong {
+      color: #e5e7eb;
+      font-weight: 600;
+    }
+
+    .small,
+    .status {
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.5;
+      margin: 0;
+    }
+
+    .header-right {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .header-meta {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.4;
+    }
+
+    .header-meta-item {
+      color: #cbd5e1;
+    }
+
+    .header-meta-item strong {
+      color: #e5e7eb;
+      font-weight: 600;
+    }
+
+    .panel {
+      background: rgba(17, 24, 39, 0.9);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      box-shadow: var(--shadow);
+      margin-bottom: 16px;
+    }
+
+    .panel h2, .panel h3 {
+      margin: 0 0 12px;
+      font-size: 0.95rem;
+      letter-spacing: .02em;
+      text-transform: uppercase;
+      color: #cbd5e1;
+    }
+
+    .toolbar-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .fields-inline {
+      display: grid;
+      grid-template-columns: minmax(280px, 1fr) 380px auto;
+      gap: 12px;
+      align-items: end;
+    }
+
+    .field-date-wrap {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 12px;
+    }
+
+    .field { min-width: 0; }
+    .field-search { min-width: 0; }
+    .field-date { min-width: 0; }
+    .field-reset { min-width: 0; }
+
+    label {
+      display: block;
+      font-size: 0.84rem;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    input[type="text"],
+    input[type="password"],
+    input[type="date"] {
+      width: 100%;
+      padding: 11px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #0f172a;
+      color: var(--text);
+      outline: none;
+      color-scheme: dark;
+      accent-color: #ffffff;
+    }
+
+    input[type="text"]::placeholder,
+    input[type="password"]::placeholder {
+      color: #94a3b8;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      appearance: none;
+      border: none;
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform .15s ease, background .15s ease, border-color .15s ease;
+      white-space: nowrap;
+    }
+
+    button:hover { transform: translateY(-1px); }
+    button:active { transform: translateY(0); }
+
+    .btn-secondary {
+      background: #1e293b;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary.is-active {
+      background: var(--accent-soft);
+      border-color: rgba(59, 130, 246, 0.55);
+      color: #dbeafe;
+    }
+
+    .filters-stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    .filter-block-header,
+    .view-block-header,
+    .calendar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+
+    .filter-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .filter-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, .8);
+      border: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+
+    .filter-item input { margin: 0; }
+
+    .filter-count {
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    .view-mode-panel {
+      margin-bottom: 16px;
+    }
+
+    .calendar-panel {
+      margin-bottom: 16px;
+    }
+
+    .calendar-subtext {
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+
+    .calendar-month-title {
+      margin: 0;
+      font-size: 1rem;
+      color: #e2e8f0;
+    }
+
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .calendar-weekday {
+      text-align: center;
+      font-size: 0.78rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      padding: 4px 0;
+    }
+
+    .calendar-day {
+      min-height: 108px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: rgba(15, 23, 42, 0.78);
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      cursor: pointer;
+      transition: border-color .15s ease, background .15s ease, transform .15s ease;
+    }
+    
+    .calendar-day.is-past {
+      opacity: 0.25;
+      background: rgba(15, 23, 42, 0.5);
+      border-color: rgba(51, 65, 85, 0.5);
+      cursor: not-allowed;
+    }
+
+    .calendar-day.is-past:hover {
+      transform: none;
+      border-color: rgba(51, 65, 85, 0.5);
+    }
+    
+    .calendar-day:hover {
+      border-color: rgba(148, 163, 184, 0.7);
+      transform: translateY(-1px);
+    }
+
+    .calendar-day.is-other-month {
+      opacity: 0.35;
+      cursor: default;
+    }
+
+    .calendar-day.is-other-month:hover {
+      transform: none;
+      border-color: var(--border);
+    }
+
+    .calendar-day.is-selected {
+      border-color: rgba(59, 130, 246, 0.8);
+      background: rgba(30, 64, 175, 0.2);
+      box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.18);
+    }
+
+    .calendar-day.is-today {
+      box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.45);
+    }
+
+    .calendar-day-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 6px;
+    }
+
+    .calendar-day-num {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #f8fafc;
+    }
+
+    .calendar-count {
+      font-size: 0.74rem;
+      color: #cbd5e1;
+      background: rgba(30, 41, 59, 0.95);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 2px 7px;
+    }
+
+    .calendar-items {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .calendar-item {
+      font-size: 0.74rem;
+      line-height: 1.25;
+      color: #cbd5e1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      padding-left: 10px;
+      position: relative;
+    }
+
+    .calendar-item::before {
+      content: "";
+      width: 5px;
+      height: 5px;
+      border-radius: 999px;
+      background: #60a5fa;
+      position: absolute;
+      left: 0;
+      top: 0.42rem;
+    }
+
+    .calendar-more {
+      font-size: 0.74rem;
+      color: var(--muted);
+      margin-top: auto;
+    }
+
+    .calendar-controls {
+      align-items: center;
+    }
+
+    .month-jump-select {
+      min-width: 190px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #0f172a;
+      color: var(--text);
+      outline: none;
+      font: inherit;
+    }
+
+    .results {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .results-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+      margin-bottom: 8px;
+    }
+
+    .results-head-title {
+      font-size: 0.95rem;
+      color: #cbd5e1;
+      text-transform: uppercase;
+      letter-spacing: .02em;
+      font-weight: 700;
+    }
+
+    .event-row {
+      background: rgba(17, 24, 39, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      padding: 14px 16px;
+      display: grid;
+      grid-template-columns: minmax(260px, 1.3fr) minmax(150px, .8fr) minmax(200px, 1fr) minmax(170px, .8fr) auto;
+      gap: 14px;
+      align-items: center;
+    }
+
+    .event-main { min-width: 0; }
+
+    .event-title {
+      font-size: 1rem;
+      font-weight: 700;
+      line-height: 1.3;
+      margin-bottom: 4px;
+    }
+
+    .event-sub {
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.35;
+    }
+
+    .col-label {
+      color: var(--muted);
+      font-size: 0.74rem;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      margin-bottom: 4px;
+    }
+
+    .col-value {
+      font-size: 0.93rem;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+
+    .badges {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .badge {
+      background: var(--chip);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 0.76rem;
+      color: #cbd5e1;
+    }
+
+    .badge.meta {
+      background: rgba(124, 58, 237, .18);
+      border-color: rgba(124, 58, 237, .35);
+      color: #ddd6fe;
+    }
+
+    .link-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(30, 41, 59, .95);
+      border: 1px solid var(--border);
+      color: #e2e8f0;
+      font-size: 0.9rem;
+      min-width: 110px;
+    }
+
+    .notes-row {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.45;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .empty {
+      background: rgba(17, 24, 39, 0.92);
+      border: 1px dashed var(--border);
+      border-radius: 18px;
+      padding: 32px;
+      text-align: center;
+      color: var(--muted);
+    }
+
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.75);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 1000;
+    }
+
+    .login-card {
+      width: 100%;
+      max-width: 420px;
+      background: rgba(17, 24, 39, 0.98);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      padding: 22px;
+    }
+
+    .login-card h2 {
+      margin: 0 0 8px;
+      font-size: 1.35rem;
+    }
+
+    .login-card p {
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.5;
+    }
+
+    .error-text {
+      color: #fca5a5;
+      font-size: 0.9rem;
+      margin-top: 10px;
+      min-height: 20px;
+    }
+    .badge.new {
+      background: rgba(34, 197, 94, 0.18);
+      border-color: rgba(34, 197, 94, 0.45);
+      color: #bbf7d0;
+      font-weight: 700;
+    }
+
+    @media (max-width: 1100px) {
+      .fields-inline {
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+
+      .field-search {
+        grid-column: 1 / -1;
+      }
+
+      .field-date-wrap {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 12px;
+      }
+
+      .field-reset .btn-row {
+        justify-content: flex-start;
+      }
+
+      .event-row {
+        grid-template-columns: 1.3fr 1fr 1fr;
+      }
+
+      .calendar-grid {
+        gap: 8px;
+      }
+
+      .calendar-day {
+        min-height: 96px;
+      }
+    }
+
+    
+    @media (max-width: 1100px) and (min-width: 801px) {
+      .header {
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+          "title actions"
+          "meta  meta";
+        gap: 10px 16px;
+      }
+
+      .header h1 {
+        font-size: 1.7rem;
+        max-width: 700px;
+      }
+
+      .header-right {
+        align-items: flex-end;
+      }
+
+      .header-actions {
+        justify-content: flex-end;
+      }
+
+      .header-meta {
+        justify-content: flex-start;
+        gap: 12px;
+        font-size: 0.86rem;
+      }
+    }
+    
+    
+    @media (max-width: 800px) {
+      .main { padding: 16px; }
+
+      .header {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+          "title"
+          "actions"
+          "meta";
+      }
+
+      .header h1 {
+        font-size: 1.35rem;
+        white-space: normal;
+      }
+
+      .header-right {
+        align-items: flex-start;
+      }
+
+      .header-actions {
+        justify-content: flex-start;
+      }
+
+      .header-meta {
+        justify-content: flex-start;
+      }
+
+      .field-date-wrap {
+        grid-template-columns: 1fr;
+      }
+
+      .fields-inline,
+      .event-row {
+        grid-template-columns: 1fr;
+      }
+
+      .calendar-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .calendar-weekday {
+        display: none;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .calendar-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .calendar-day.is-other-month {
+        display: none;
+      }
+    }
+
+    .venue-tabbar {display:none;position:sticky;top:0;z-index:25;gap:10px;flex-wrap:wrap;background:#101827;padding:12px 0 16px;margin:0 0 16px;border-bottom:1px solid #334155}
+    .venue-tabbar button {padding:12px 20px;font-weight:700;font-size:15px;min-height:46px}
+    .venue-tabbar button.is-active{background:#2563eb;color:white;border-color:#60a5fa}
+    .venue-tools {display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin:18px 0}
+    .venue-tools label {margin:0}
+    .venue-tools select,.venue-tools input {background:#0f172a;color:#e5e7eb;border:1px solid #334155;border-radius:10px;padding:10px}
+    .venue-tools input[type=file] {max-width:310px}
+    .venue-table-wrap {overflow-x:auto}
+    .venue-table {width:100%;border-collapse:collapse;min-width:850px}
+    .venue-table th,.venue-table td {text-align:left;padding:13px;border-bottom:1px solid #334155;vertical-align:top;font-size:.9rem}
+    .venue-table th {color:#94a3b8}
+    .venue-status {color:#94a3b8;font-size:.88rem;margin-top:12px}
+    .venue-check {display:inline-flex;align-items:center;gap:5px;white-space:nowrap;color:#cbd5e1}
+    .sport-event,.sport-channel{display:flex;align-items:center;gap:12px;}
+    .sport-thumb{width:88px;height:54px;object-fit:cover;border-radius:7px;flex-shrink:0;background:#1e293b}
+    .sport-logo{width:54px;height:38px;object-fit:contain;flex-shrink:0;}
+    .venue-live {color:#86efac;font-weight:600}
+  .venue-tabbar{position:sticky;top:0;z-index:30;background:#0b1221;padding:12px 0 16px;display:flex;gap:10px;flex-wrap:wrap;border-bottom:1px solid #334155;margin-bottom:20px}
+.venue-tabbar button{min-height:45px;padding:10px 22px;font-size:15px;font-weight:700;border-radius:9px}
+.venue-tabbar button.is-active{background:#2563eb;border-color:#60a5fa;color:white}
+@media(max-width:640px){.venue-tabbar{flex-direction:column}.venue-tabbar button{width:100%}}
+</style>
+</head>
+<body>
+  <div id="loginOverlay" class="overlay" style="display:none;">
+    <div class="login-card">
+      <h2>Sign in</h2>
+      <p>Please enter your provided username and password to continue.</p>
+      <div class="field">
+        <label for="usernameInput">Username</label>
+        <input id="usernameInput" type="text" autocomplete="username" />
+      </div>
+      <div class="field">
+        <label for="passwordInput">Password</label>
+        <input id="passwordInput" type="password" autocomplete="current-password" />
+      </div>
+      <div class="btn-row" style="margin-top: 16px;">
+        <button id="submitLoginBtn" class="btn-secondary">Login</button>
+      </div>
+      <div id="loginError" class="error-text"></div>
+    </div>
+  </div>
+
+  <main class="main">
+    <div class="header">
+      <div class="header-left">
+        <h1>Melbourne Events &amp; Live Sport</h1>
+        <p class="small">Future events only, with search, available filters, and inclusive date range filters.</p>
+      </div>
+
+      <div class="header-right">
+        <div class="header-actions">
+          <button id="loginBtn" class="btn-secondary">Login</button>
+          <button id="logoutBtn" class="btn-secondary" style="display:none;">Logout</button>
+          <button id="refreshBtn" class="btn-secondary" style="display:none;">Refresh data</button>
+        </div>
+      </div>
+
+      <div class="header-meta" id="summary"></div>
+    </div>
+
+
+    <nav id="venueTabs" class="venue-tabbar" aria-label="Dashboard views">
+      <button type="button" id="tabEvents" class="btn-secondary is-active">Trade Events</button>
+      <button type="button" id="tabP5" class="btn-secondary">Live Sport P5</button>
+      <button type="button" id="tabHATF" class="btn-secondary">Live Sport HATF</button>
+    </nav>
+    <section id="venueSports" class="panel" style="display:none" aria-label="Private sports testing">
+      <h2 id="venueHeading">Live Sport</h2>
+      <p class="small">SportsDB Australian television assignments. Times shown are scheduled match starts in Melbourne; broadcast coverage and live status are not independently confirmed.</p>
+      <div class="venue-tools">
+        <button type="button" id="venueRefresh" class="btn-secondary">Refresh sports from S3</button>
+        <label>Optional: import a local sports JSON
+          <input id="venueImport" type="file" accept=".json,application/json">
+        </label>
+        <label>Sport <select id="venueSport"><option value="">All sports</option></select></label>
+        <label>Date <select id="venueDate"><option value="">All dates</option></select></label>
+        <label>Search <input id="venueSearch" type="text" placeholder="Sport, teams or channel"></label>
+        <label class="venue-check"><input id="venueOnlySelected" type="checkbox"> Only selected for venue</label>
+      </div>
+      <div id="venueRules" class="venue-status"></div>
+      <div id="venueSummary" class="venue-status">Loading latest matched fixtures from S3…</div>
+      <div class="venue-table-wrap"><table class="venue-table"><thead><tr>
+        <th>Show at venue</th><th>Sport / Competition</th><th>Teams / Event</th><th>Match starts (Melbourne)</th><th>Channel</th><th>Status</th>
+      </tr></thead><tbody id="venueRows"><tr><td colspan="6">Waiting for latest sports feed…</td></tr></tbody></table></div>
+      <p class="venue-status">Sports fixtures update from S3 whenever you sign in or refresh. Venue selections are saved in this browser only, not across devices. This is a test feature and does not confirm screening rights.</p>
+    </section>
+    <div id="eventsView">
+    <section class="panel">
+      <div class="toolbar-grid">
+        <div>
+          <h2>Filters</h2>
+          <div class="fields-inline">
+            <div class="field field-search">
+              <label for="searchInput">Search</label>
+              <input id="searchInput" type="text" placeholder="Title, location, category, source..." />
+            </div>
+
+            <div class="field-date-wrap">
+              <div class="field field-date">
+                <label for="dateFrom">From date</label>
+                <input id="dateFrom" type="date" />
+              </div>
+              <div class="field field-date">
+                <label for="dateTo">To date</label>
+                <input id="dateTo" type="date" />
+              </div>
+            </div>
+
+            <div class="field field-reset">
+              <label>&nbsp;</label>
+              <div class="btn-row">
+                <button class="btn-secondary" id="resetBtn">Reset</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="filters-stack">
+          <div>
+            <div class="filter-block-header">
+              <h3 style="margin:0;">Available Filters</h3>
+              <div class="btn-row">
+                <button class="btn-secondary" id="selectAllDatasetsBtn">Select all</button>
+                <button class="btn-secondary" id="clearAllDatasetsBtn">Clear all</button>
+              </div>
+            </div>
+            <div class="filter-list" id="datasetList">
+              <div class="small">Login to load filters…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel view-mode-panel">
+      <div class="view-block-header">
+        <h2 style="margin:0;">View</h2>
+        <div class="btn-row">
+          <button id="listViewBtn" class="btn-secondary is-active">List</button>
+          <button id="calendarViewBtn" class="btn-secondary">Calendar</button>
+        </div>
+      </div>
+      <p class="small">Use calendar view for quick scanning. Click a day to focus the list below.</p>
+    </section>
+
+    <section id="calendarPanel" class="panel calendar-panel" style="display:none;">
+      <div class="calendar-header">
+        <div>
+          <h2 style="margin:0 0 6px;">Calendar</h2>
+          <div class="calendar-subtext" id="calendarSubtext">Quick scan of filtered events</div>
+        </div>
+        <div class="btn-row calendar-controls">
+          <button id="prevMonthBtn" class="btn-secondary">Previous</button>
+          <select id="monthJumpSelect" class="month-jump-select"></select>
+          <button id="nextMonthBtn" class="btn-secondary">Next</button>
+          <button id="clearDayBtn" class="btn-secondary" style="display:none;">Clear day</button>
+        </div>
+      </div>
+
+      <div id="calendarGrid"></div>
+    </section>
+
+    <div class="status" id="status">Loading…</div>
+
+    <div class="results-head">
+      <div class="results-head-title" id="resultsTitle">Event list</div>
+    </div>
+
+    <div class="results" id="results"></div>
+    </div>
+    </main>
+
+<script>
+  const USERS_URL = '/ui/users.json';
+  const PUBLIC_URL = '/public/index/master.json';
+  const INTERNAL_URL = '/internal/index/master.json';
+  const RESTRICTED_URL = '/restricted/index/master.json';
+  const SESSION_KEY = 'event_ui_user';
+
+  const state = {
+    raw: null,
+    records: [],
+    datasets: [],
+    filters: [],
+    activeFilters: new Set(),
+    searchText: '',
+    dateFrom: '',
+    dateTo: '',
+    user: null,
+    users: [],
+    viewMode: 'list',
+    selectedDay: '',
+    calendarMonth: '',
+  };
+
+  const els = {
+    searchInput: document.getElementById('searchInput'),
+    dateFrom: document.getElementById('dateFrom'),
+    dateTo: document.getElementById('dateTo'),
+    resetBtn: document.getElementById('resetBtn'),
+    summary: document.getElementById('summary'),
+    status: document.getElementById('status'),
+    results: document.getElementById('results'),
+    resultsTitle: document.getElementById('resultsTitle'),
+    loginBtn: document.getElementById('loginBtn'),
+    logoutBtn: document.getElementById('logoutBtn'),
+    refreshBtn: document.getElementById('refreshBtn'),
+    loginOverlay: document.getElementById('loginOverlay'),
+    usernameInput: document.getElementById('usernameInput'),
+    passwordInput: document.getElementById('passwordInput'),
+    submitLoginBtn: document.getElementById('submitLoginBtn'),
+    loginError: document.getElementById('loginError'),
+    datasetList: document.getElementById('datasetList'),
+    selectAllDatasetsBtn: document.getElementById('selectAllDatasetsBtn'),
+    clearAllDatasetsBtn: document.getElementById('clearAllDatasetsBtn'),
+    listViewBtn: document.getElementById('listViewBtn'),
+    calendarViewBtn: document.getElementById('calendarViewBtn'),
+    calendarPanel: document.getElementById('calendarPanel'),
+    calendarGrid: document.getElementById('calendarGrid'),
+    monthJumpSelect: document.getElementById('monthJumpSelect'),
+    calendarSubtext: document.getElementById('calendarSubtext'),
+    prevMonthBtn: document.getElementById('prevMonthBtn'),
+    nextMonthBtn: document.getElementById('nextMonthBtn'),
+    clearDayBtn: document.getElementById('clearDayBtn')
+  };
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function formatDate(value) {
+    if (!value) return 'Unknown';
+    const d = new Date(value + 'T00:00:00');
+    if (Number.isNaN(d.getTime())) return value;
+    return new Intl.DateTimeFormat('en-AU', {
+      weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+    }).format(d);
+  }
+
+  function formatDateLong(value) {
+    if (!value) return 'Unknown';
+    const d = new Date(value + 'T00:00:00');
+    if (Number.isNaN(d.getTime())) return value;
+    return new Intl.DateTimeFormat('en-AU', {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+    }).format(d);
+  }
+
+  function formatDateTimeStamp(value) {
+    if (!value) return 'Unknown';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    return new Intl.DateTimeFormat('en-AU', {
+      dateStyle: 'medium', timeStyle: 'short'
+    }).format(d);
+  }
+
+  function formatMonthTitle(value) {
+    if (!value) return '';
+    const d = new Date(value + '-01T00:00:00');
+    if (Number.isNaN(d.getTime())) return value;
+    return new Intl.DateTimeFormat('en-AU', {
+      month: 'long',
+      year: 'numeric'
+    }).format(d);
+  }
+
+  function formatTimeRange(start, end) {
+    if (start && end) return `${start} – ${end}`;
+    if (start) return start;
+    if (end) return `Until ${end}`;
+    return 'Not listed';
+  }
+
+  function todayIso() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  function isoMonthFromDate(dateStr) {
+    return (dateStr || '').slice(0, 7);
+  }
+
+  function firstDayOfMonth(monthStr) {
+    return new Date(monthStr + '-01T00:00:00');
+  }
+
+  function getMonthBounds(monthStr) {
+    const first = firstDayOfMonth(monthStr);
+    if (Number.isNaN(first.getTime())) return null;
+    const start = new Date(first);
+    const end = new Date(first.getFullYear(), first.getMonth() + 1, 0);
+    return { start, end };
+  }
+
+  function isoFromDateObj(dateObj) {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const d = String(dateObj.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  function weekdayMonFirst(dateObj) {
+    const jsDay = dateObj.getDay();
+    return jsDay === 0 ? 6 : jsDay - 1;
+  }
+
+  function normaliseStringArray(value, fallback = []) {
+    if (Array.isArray(value)) {
+      const cleaned = value
+        .map(v => String(v ?? '').trim())
+        .filter(Boolean);
+      return cleaned.length ? cleaned : [...fallback];
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      return trimmed ? [trimmed] : [...fallback];
+    }
+
+    return [...fallback];
+  }
+
+  function normaliseAllowedVenues(value) {
+    const venues = normaliseStringArray(value, ['ALL'])
+      .map(v => v.toUpperCase());
+    return venues.length ? venues : ['ALL'];
+  }
+
+  function normaliseAllowedRoles(value) {
+    const roles = normaliseStringArray(value, [])
+      .map(v => v.toLowerCase());
+    return roles;
+  }
+
+  function roleAllowed(userRole, allowedRoles) {
+    const roles = normaliseAllowedRoles(allowedRoles);
+    if (!roles.length) return true;
+    return roles.includes(String(userRole || '').toLowerCase());
+  }
+
+  function venueAllowed(userVenues, recordVenues) {
+    const u = normaliseAllowedVenues(userVenues);
+    const r = normaliseAllowedVenues(recordVenues);
+
+    if (u.includes('ALL')) return true;
+    if (r.includes('ALL')) return true;
+
+    return r.some(venue => u.includes(venue));
+  }
+
+  function userCanAccessRecord(user, record) {
+    if (!user || !record) return false;
+
+    const access = record.access && typeof record.access === 'object' ? record.access : {};
+
+    return (
+      roleAllowed(user.role, access.allowed_roles) &&
+      venueAllowed(user.allowedVenues, access.allowed_venues)
+    );
+  }
+
+  function userCanAccessDataset(user, dataset) {
+    if (!user || !dataset) return false;
+
+    return (
+      roleAllowed(user.role, dataset.allowed_roles) &&
+      venueAllowed(user.allowedVenues, dataset.allowed_venues)
+    );
+  }
+
+  function normaliseUser(user) {
+    if (!user || typeof user !== 'object') return null;
+
+    const allowedVenues = normaliseAllowedVenues(
+      user.allowed_venues ?? user.allowedVenues ?? user.venues ?? user.venue
+    );
+
+    return {
+      username: String(user.username || '').trim(),
+      password: String(user.password || ''),
+      role: String(user.role || '').trim().toLowerCase(),
+      displayName: String(user.display_name || user.displayName || user.username || 'User').trim(),
+      allowedVenues
+    };
+  }
+
+  function isElevatedRole(role) {
+    return role === 'admin' || role === 'manager';
+  }
+
+  function getStoredUser() {
+    try {
+      const raw = sessionStorage.getItem(SESSION_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  function setStoredUser(user) {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(user));
+  }
+
+  function clearStoredUser() {
+    sessionStorage.removeItem(SESSION_KEY);
+  }
+
+  function showLoginOverlay(show) {
+    els.loginOverlay.style.display = show ? 'flex' : 'none';
+    if (show) els.usernameInput.focus();
+  }
+
+  function updateAuthUI() {
+    if (!state.user) {
+      els.loginBtn.style.display = 'inline-flex';
+      els.logoutBtn.style.display = 'none';
+      els.refreshBtn.style.display = 'none';
+      return;
+    }
+
+    els.loginBtn.style.display = 'none';
+    els.logoutBtn.style.display = 'inline-flex';
+    els.refreshBtn.style.display = 'inline-flex';
+  }
+
+  function updateViewButtons() {
+    els.listViewBtn.classList.toggle('is-active', state.viewMode === 'list');
+    els.calendarViewBtn.classList.toggle('is-active', state.viewMode === 'calendar');
+    els.calendarPanel.style.display = state.viewMode === 'calendar' && state.user ? 'block' : 'none';
+  }
+
+  function normaliseFilterValues(value) {
+    if (Array.isArray(value)) {
+      return value
+        .filter(v => v != null && String(v).trim() !== '')
+        .map(v => String(v).trim());
+    }
+    if (value == null || String(value).trim() === '') return [];
+    return [String(value).trim()];
+  }
+
+  function buildSearchBlob(record) {
+    return [
+      record.title,
+      record.location_name,
+      record.source,
+      record.dataset_label,
+      ...(record.categories || []),
+      ...(record.audience_type || []),
+      ...(record.filter_values || []),
+      record.notes
+    ].filter(Boolean).join(' ').toLowerCase();
+  }
+
+  function normaliseRecords(records) {
+    return (records || [])
+      .filter(Boolean)
+      .map(record => {
+        const filterValues = normaliseFilterValues(record.filter);
+        const access = record.access && typeof record.access === 'object' ? record.access : {};
+
+        return {
+          ...record,
+          categories: Array.isArray(record.categories) ? record.categories : [],
+          audience_type: Array.isArray(record.audience_type) ? record.audience_type : [],
+          filter_values: filterValues,
+          access: {
+            ...access,
+            allowed_roles: normaliseAllowedRoles(access.allowed_roles),
+            allowed_venues: normaliseAllowedVenues(access.allowed_venues),
+          },
+          _searchBlob: ''
+        };
+      })
+      .map(record => ({
+        ...record,
+        _searchBlob: buildSearchBlob(record)
+      }));
+  }
+
+  function mergeDatasets(primary, secondary) {
+    const seen = new Map();
+
+    [...(primary || []), ...(secondary || [])].forEach(dataset => {
+      if (!dataset || !dataset.key) return;
+
+      const incoming = {
+        ...dataset,
+        allowed_roles: normaliseAllowedRoles(dataset.allowed_roles),
+        allowed_venues: normaliseAllowedVenues(dataset.allowed_venues),
+      };
+
+      const existing = seen.get(incoming.key);
+      if (!existing) {
+        seen.set(incoming.key, incoming);
+      } else {
+        existing.record_count = (existing.record_count || 0) + (incoming.record_count || 0);
+      }
+    });
+
+    return Array.from(seen.values()).sort((a, b) => (a.label || a.key).localeCompare(b.label || b.key));
+  }
+
+  function buildAvailableFilters(records) {
+    const counts = new Map();
+
+    (records || []).forEach(record => {
+      normaliseFilterValues(record.filter).forEach(value => {
+        counts.set(value, (counts.get(value) || 0) + 1);
+      });
+    });
+
+    return Array.from(counts.entries())
+      .map(([key, count]) => ({ key, label: key, count }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }
+
+  async function loadUsers() {
+    const response = await fetch(USERS_URL + '?t=' + Date.now(), { cache: 'no-store' });
+    if (!response.ok) throw new Error(`Users file failed: HTTP ${response.status}`);
+    const payload = await response.json();
+    const rawUsers = Array.isArray(payload) ? payload : payload.users;
+    state.users = (rawUsers || [])
+      .map(normaliseUser)
+      .filter(user => user && user.username && user.role);
+    if (!state.users.length) throw new Error('No valid users found in users.json');
+  }
+
+  function tryRestoreSession() {
+    const stored = getStoredUser();
+    if (!stored) return;
+
+    const match = state.users.find(user =>
+      user.username === stored.username &&
+      user.role === stored.role
+    );
+
+    state.user = match || null;
+  }
+
+  async function loadCombinedData() {
+    if (!state.user) return { raw: null, records: [], datasets: [] };
+
+    const bust = Date.now();
+
+    const publicResponse = await fetch(PUBLIC_URL + '?t=' + bust, { cache: 'no-store' });
+    if (!publicResponse.ok) throw new Error(`Public index failed: HTTP ${publicResponse.status}`);
+    const publicData = await publicResponse.json();
+
+    let combinedRecords = normaliseRecords(publicData.records || []);
+    let combinedDatasets = publicData.datasets || [];
+    let rawForSummary = publicData;
+
+    try {
+      const internalResponse = await fetch(INTERNAL_URL + '?t=' + bust, { cache: 'no-store' });
+      if (internalResponse.ok) {
+        const internalData = await internalResponse.json();
+        combinedRecords = combinedRecords.concat(normaliseRecords(internalData.records || []));
+        combinedDatasets = mergeDatasets(combinedDatasets, internalData.datasets || []);
+      }
+    } catch (error) {
+      console.warn('Internal data failed to load', error);
+    }
+
+    if (isElevatedRole(state.user.role)) {
+      try {
+        const restrictedResponse = await fetch(RESTRICTED_URL + '?t=' + bust, { cache: 'no-store' });
+        if (restrictedResponse.ok) {
+          const restrictedData = await restrictedResponse.json();
+          combinedRecords = combinedRecords.concat(normaliseRecords(restrictedData.records || []));
+          combinedDatasets = mergeDatasets(combinedDatasets, restrictedData.datasets || []);
+        }
+      } catch (error) {
+        console.warn('Restricted data failed to load', error);
+      }
+    }
+
+    combinedRecords = combinedRecords.filter(record => userCanAccessRecord(state.user, record));
+    combinedDatasets = combinedDatasets.filter(dataset => userCanAccessDataset(state.user, dataset));
+
+    return {
+      raw: rawForSummary,
+      records: combinedRecords,
+      datasets: combinedDatasets,
+    };
+  }
+
+  function buildFilterOptions(records, datasets) {
+    state.datasets = (datasets || []).map(dataset => ({
+      key: dataset.key,
+      label: dataset.label || dataset.key,
+      count: dataset.record_count || 0,
+    }));
+
+    state.filters = buildAvailableFilters(records);
+    state.activeFilters = new Set(state.filters.map(item => item.key));
+  }
+
+  function renderDatasetFilters() {
+    if (!state.filters.length) {
+      els.datasetList.innerHTML = '<div class="small">No filters found.</div>';
+      return;
+    }
+
+    els.datasetList.innerHTML = state.filters.map(item => `
+      <label class="filter-item">
+        <input type="checkbox" data-filter="${escapeHtml(item.key)}" ${state.activeFilters.has(item.key) ? 'checked' : ''} />
+        <span>${escapeHtml(item.label)}</span>
+        <span class="filter-count">${item.count}</span>
+      </label>
+    `).join('');
+
+    els.datasetList.querySelectorAll('input[type="checkbox"]').forEach(input => {
+      input.addEventListener('change', () => {
+        const value = input.dataset.filter;
+        if (!value) return;
+        if (input.checked) state.activeFilters.add(value);
+        else state.activeFilters.delete(value);
+        if (state.selectedDay && !getBaseFilteredRecords().some(r => r.date === state.selectedDay)) {
+          state.selectedDay = '';
+        }
+        renderAll();
+      });
+    });
+  }
+
+  function getBaseFilteredRecords() {
+    const searchText = state.searchText.trim().toLowerCase();
+    const today = todayIso();
+    const dateFrom = state.dateFrom || today;
+    const dateTo = state.dateTo;
+
+    return state.records.filter(record => {
+      const eventDate = record.date || '';
+      if (!eventDate || eventDate < today) return false;
+      if (dateFrom && eventDate < dateFrom) return false;
+      if (dateTo && eventDate > dateTo) return false;
+
+      if (state.activeFilters.size === 0) return false;
+
+      const recordFilters = record.filter_values || [];
+      if (!recordFilters.some(value => state.activeFilters.has(value))) return false;
+
+      if (searchText && !record._searchBlob.includes(searchText)) return false;
+      return true;
+    });
+  }
+
+  function getDisplayRecords() {
+    const base = getBaseFilteredRecords();
+    if (state.selectedDay) {
+      return base.filter(record => record.date === state.selectedDay);
+    }
+    return base;
+  }
+
+  function getAvailableCalendarMonths(records) {
+    const months = Array.from(new Set((records || []).map(r => isoMonthFromDate(r.date)).filter(Boolean))).sort();
+    return months;
+  }
+
+  function ensureCalendarMonth(baseRecords) {
+    const months = getAvailableCalendarMonths(baseRecords);
+    if (!months.length) {
+      state.calendarMonth = '';
+      return;
+    }
+
+    if (!state.calendarMonth || !months.includes(state.calendarMonth)) {
+      state.calendarMonth = months[0];
+    }
+  }
+
+  function renderSummary(filtered) {
+    const selectedFilters = state.activeFilters.size;
+    const totalFilters = state.filters.length;
+    const raw = state.raw || {};
+    const items = [];
+
+    if (state.user) {
+      items.push(`<span class="header-meta-item"><strong>User:</strong> ${escapeHtml(state.user.displayName)} (${escapeHtml(state.user.role)})</span>`);
+      items.push(`<span class="header-meta-item"><strong>Venues:</strong> ${escapeHtml((state.user.allowedVenues || ['ALL']).join(', '))}</span>`);
+    }
+
+    items.push(`<span class="header-meta-item"><strong>Results:</strong> ${filtered.length}</span>`);
+    items.push(`<span class="header-meta-item"><strong>Filters:</strong> ${selectedFilters}/${totalFilters}</span>`);
+
+    if (raw.scraped_at) {
+      items.push(`<span class="header-meta-item"><strong>Feed updated:</strong> ${escapeHtml(formatDateTimeStamp(raw.scraped_at))}</span>`);
+    }
+
+    els.summary.innerHTML = items.join('');
+  }
+
+  function renderStatus(filtered) {
+    if (!state.user) {
+      els.status.textContent = 'Please log in to view event data.';
+      return;
+    }
+
+    const raw = state.raw || {};
+    const parts = [];
+    parts.push(`Showing ${filtered.length} future events`);
+    parts.push(state.dateFrom ? `from ${state.dateFrom}` : 'from today onward');
+    if (state.dateTo) parts.push(`to ${state.dateTo}`);
+    if (state.selectedDay) parts.push(`selected day: ${state.selectedDay}`);
+    parts.push(`role: ${state.user.role}`);
+    parts.push(`venues: ${(state.user.allowedVenues || ['ALL']).join(', ')}`);
+    if (raw.record_count != null) parts.push(`public feed has ${raw.record_count} records`);
+    els.status.textContent = parts.join(' • ');
+  }
+
+  function renderCalendar(baseRecords) {
+    if (!state.user || state.viewMode !== 'calendar') {
+      els.calendarGrid.innerHTML = '';
+      return;
+    }
+
+    function renderMonthJump(recordsForMonths) {
+      const months = getAvailableCalendarMonths(recordsForMonths);
+
+      if (!months.length) {
+        els.monthJumpSelect.innerHTML = '<option value="">No months available</option>';
+        els.monthJumpSelect.disabled = true;
+        return;
+      }
+
+      els.monthJumpSelect.disabled = false;
+      els.monthJumpSelect.innerHTML = months.map(month => `
+        <option value="${escapeHtml(month)}" ${month === state.calendarMonth ? 'selected' : ''}>
+          ${escapeHtml(formatMonthTitle(month))}
+        </option>
+      `).join('');
+    }
+
+    ensureCalendarMonth(baseRecords);
+
+    if (!state.calendarMonth) {
+      els.calendarSubtext.textContent = 'No events match the current filters.';
+      renderMonthJump(baseRecords);
+      els.calendarGrid.innerHTML = '<div class="empty">No events available for calendar view.</div>';
+      els.clearDayBtn.style.display = 'none';
+      return;
+    }
+
+    const bounds = getMonthBounds(state.calendarMonth);
+    const monthTitle = formatMonthTitle(state.calendarMonth);
+    renderMonthJump(baseRecords);
+
+    const byDate = new Map();
+    baseRecords.forEach(record => {
+      if (!byDate.has(record.date)) byDate.set(record.date, []);
+      byDate.get(record.date).push(record);
+    });
+
+    const monthRecords = baseRecords.filter(r => isoMonthFromDate(r.date) === state.calendarMonth);
+    els.calendarSubtext.textContent = monthRecords.length
+      ? `${monthRecords.length} event${monthRecords.length === 1 ? '' : 's'} in ${monthTitle}. Click a day to focus the list below.`
+      : `No events in ${monthTitle}.`;
+
+    els.clearDayBtn.style.display = state.selectedDay ? 'inline-flex' : 'none';
+
+    if (!bounds) {
+      els.calendarGrid.innerHTML = '<div class="empty">Calendar unavailable.</div>';
+      return;
+    }
+
+    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const firstOffset = weekdayMonFirst(bounds.start);
+    const startCell = new Date(bounds.start);
+    startCell.setDate(startCell.getDate() - firstOffset);
+
+    const cells = [];
+    for (let i = 0; i < 42; i++) {
+      const cellDate = new Date(startCell);
+      cellDate.setDate(startCell.getDate() + i);
+      const iso = isoFromDateObj(cellDate);
+      const isPast = iso < todayIso();
+      const dayRecords = (byDate.get(iso) || []).slice().sort((a, b) => {
+        const aTime = a.start_time || '';
+        const bTime = b.start_time || '';
+        return (aTime + a.title).localeCompare(bTime + b.title);
+      });
+
+      const isOtherMonth = isoMonthFromDate(iso) !== state.calendarMonth;
+      const isToday = iso === todayIso();
+      const isSelected = state.selectedDay === iso;
+      const visibleItems = dayRecords.slice(0, 3);
+
+      cells.push(`
+        <button
+          class="calendar-day
+            ${isOtherMonth ? ' is-other-month' : ''}
+            ${isPast ? ' is-past' : ''}
+            ${isToday ? ' is-today' : ''}
+            ${isSelected ? ' is-selected' : ''}"
+          data-day="${escapeHtml(iso)}"
+          ${isOtherMonth ? 'data-other-month="true"' : ''}
+          ${isPast ? 'disabled' : ''}
+          type="button"
+        >
+          <div class="calendar-day-top">
+            <div class="calendar-day-num">${cellDate.getDate()}</div>
+            ${dayRecords.length ? `<div class="calendar-count">${dayRecords.length}</div>` : ''}
+          </div>
+          <div class="calendar-items">
+            ${visibleItems.map(item => `
+              <div class="calendar-item" title="${escapeHtml((item.start_time ? item.start_time + ' ' : '') + (item.title || ''))}">
+                ${escapeHtml(item.start_time ? item.start_time + ' ' + item.title : item.title)}
+              </div>
+            `).join('')}
+          </div>
+          ${dayRecords.length > visibleItems.length ? `<div class="calendar-more">+${dayRecords.length - visibleItems.length} more</div>` : ''}
+        </button>
+      `);
+    }
+
+    els.calendarGrid.innerHTML = `
+      <div class="calendar-grid">
+        ${weekdays.map(day => `<div class="calendar-weekday">${day}</div>`).join('')}
+        ${cells.join('')}
+      </div>
+    `;
+
+    els.calendarGrid.querySelectorAll('.calendar-day').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const day = btn.dataset.day;
+        const isOtherMonth = btn.dataset.otherMonth === 'true';
+        if (!day || isOtherMonth) return;
+
+        state.selectedDay = state.selectedDay === day ? '' : day;
+        renderAll();
+      });
+    });
+  }
+
+  function renderResults(filtered) {
+    if (state.viewMode === 'calendar' && !state.selectedDay) {
+      els.resultsTitle.textContent = 'Select a day to view events';
+
+      els.results.innerHTML = `
+        <div class="empty">
+          <div style="font-size: 1.05rem; color: #e2e8f0; margin-bottom: 8px;">
+            Select a day from the calendar
+          </div>
+          <div>Click any date above to view events for that day.</div>
+        </div>
+      `;
+      return;
+    }
+
+    els.resultsTitle.textContent = state.selectedDay
+      ? `Event list — ${formatDateLong(state.selectedDay)}`
+      : 'Event list';
+
+    if (!filtered.length) {
+      els.results.innerHTML = `
+        <div class="empty">
+          <div style="font-size: 1.05rem; color: #e2e8f0; margin-bottom: 8px;">No matching events</div>
+          <div>Try widening the date range, selecting more filters, clearing the search, or choosing another day.</div>
+        </div>
+      `;
+      return;
+    }
+
+    els.results.innerHTML = filtered.map(record => {
+      const categoryBadges = (record.categories || []).slice(0, 3)
+        .map(value => `<span class="badge">${escapeHtml(value)}</span>`).join('');
+
+      const filterBadges = (record.filter_values || [])
+        .map(value => `<span class="badge meta">${escapeHtml(value)}</span>`).join('');
+
+      const newBadge = record.is_new
+        ? `<span class="badge new">NEW</span>`
+        : '';
+
+      const sourceLink = record.source_url
+        ? `<a class="link-btn" href="${escapeHtml(record.source_url)}" target="_blank" rel="noopener noreferrer">Open source</a>`
+        : `<span class="link-btn" style="opacity:.6; cursor:default;">No source link</span>`;
+
+      const notesRow = record.notes
+        ? `<div class="notes-row" title="${escapeHtml(record.notes)}">${escapeHtml(record.notes)}</div>`
+        : '';
+
+      return `
+        <article class="event-row">
+          <div class="event-main">
+            <div class="event-title">
+              ${escapeHtml(record.title || 'Untitled event')}
+              ${record.is_new ? '<span class="badge new" style="margin-left:8px;">NEW</span>' : ''}
+            </div>
+
+            <div class="event-sub">
+              ${escapeHtml(record.dataset_label || record.dataset || 'Dataset')} • ${escapeHtml(record.source || 'Source')}
+            </div>
+
+            <div class="badges">
+              ${filterBadges}
+              ${categoryBadges}
+            </div>
+
+            ${notesRow}
+          </div>
+
+          <div>
+            <div class="col-label">Date</div>
+            <div class="col-value">${escapeHtml(formatDate(record.date))}</div>
+          </div>
+
+          <div>
+            <div class="col-label">Location</div>
+            <div class="col-value">${escapeHtml(record.location_name || 'Not listed')}</div>
+          </div>
+
+          <div>
+            <div class="col-label">Time</div>
+            <div class="col-value">${escapeHtml(formatTimeRange(record.start_time, record.end_time))}</div>
+          </div>
+
+          <div>
+            ${sourceLink}
+          </div>
+        </article>
+      `;
+    }).join('');
+  }
+
+  function renderAll() {
+    const baseFiltered = getBaseFilteredRecords();
+    ensureCalendarMonth(baseFiltered);
+    const displayFiltered = getDisplayRecords();
+
+    renderSummary(displayFiltered);
+    renderStatus(displayFiltered);
+    updateViewButtons();
+    renderCalendar(baseFiltered);
+    renderResults(displayFiltered);
+  }
+
+  function resetFilters() {
+    state.searchText = '';
+    state.dateFrom = '';
+    state.dateTo = '';
+    state.selectedDay = '';
+    state.activeFilters = new Set(state.filters.map(item => item.key));
+    els.searchInput.value = '';
+    els.dateFrom.value = '';
+    els.dateTo.value = '';
+    renderDatasetFilters();
+    renderAll();
+  }
+
+  async function refreshData() {
+    if (!state.user) {
+      state.raw = null;
+      state.records = [];
+      state.datasets = [];
+      state.filters = [];
+      state.activeFilters = new Set();
+      state.selectedDay = '';
+      state.calendarMonth = '';
+      renderDatasetFilters();
+      renderAll();
+      return;
+    }
+
+    els.status.textContent = 'Loading event data…';
+    const data = await loadCombinedData();
+    state.raw = data.raw;
+    state.records = data.records;
+    state.selectedDay = '';
+    buildFilterOptions(data.records, data.datasets);
+
+    const baseRecords = getBaseFilteredRecords();
+    const months = getAvailableCalendarMonths(baseRecords);
+    state.calendarMonth = months[0] || '';
+
+    renderDatasetFilters();
+    renderAll();
+  }
+
+  async function submitLogin() {
+    const username = els.usernameInput.value.trim();
+    const password = els.passwordInput.value;
+    const match = state.users.find(user => user.username === username && user.password === password);
+
+    if (!match) {
+      els.loginError.textContent = 'Invalid username or password.';
+      return;
+    }
+
+    state.user = {
+      username: match.username,
+      role: match.role,
+      displayName: match.displayName,
+      allowedVenues: match.allowedVenues
+    };
+
+    setStoredUser(state.user);
+    els.loginError.textContent = '';
+    els.passwordInput.value = '';
+    showLoginOverlay(false);
+    updateAuthUI();
+    await refreshData();
+  }
+
+  async function initialiseApp() {
+    try {
+      await loadUsers();
+      tryRestoreSession();
+      updateAuthUI();
+      if (!state.user) {
+        showLoginOverlay(true);
+        renderDatasetFilters();
+        renderAll();
+        return;
+      }
+      await refreshData();
+    } catch (error) {
+      console.error(error);
+      els.status.textContent = `Failed to initialise app: ${error.message}`;
+      els.results.innerHTML = '<div class="empty">Unable to load login information. Please check /ui/users.json on the hosted dashboard.</div>';
+    }
+  }
+
+  els.loginBtn.addEventListener('click', () => {
+    els.loginError.textContent = '';
+    showLoginOverlay(true);
+  });
+
+  els.logoutBtn.addEventListener('click', () => {
+    state.user = null;
+    clearStoredUser();
+    state.selectedDay = '';
+    state.calendarMonth = '';
+    updateAuthUI();
+    showLoginOverlay(true);
+    refreshData();
+  });
+
+  els.refreshBtn.addEventListener('click', () => {
+    refreshData();
+  });
+
+  els.submitLoginBtn.addEventListener('click', submitLogin);
+
+  els.passwordInput.addEventListener('keydown', event => {
+    if (event.key === 'Enter') submitLogin();
+  });
+
+  els.usernameInput.addEventListener('keydown', event => {
+    if (event.key === 'Enter') submitLogin();
+  });
+
+  els.searchInput.addEventListener('input', event => {
+    state.searchText = event.target.value;
+    if (state.selectedDay && !getBaseFilteredRecords().some(r => r.date === state.selectedDay)) {
+      state.selectedDay = '';
+    }
+    renderAll();
+  });
+
+  els.dateFrom.addEventListener('change', event => {
+    state.dateFrom = event.target.value;
+    if (state.selectedDay && !getBaseFilteredRecords().some(r => r.date === state.selectedDay)) {
+      state.selectedDay = '';
+    }
+    renderAll();
+  });
+
+  els.dateTo.addEventListener('change', event => {
+    state.dateTo = event.target.value;
+    if (state.selectedDay && !getBaseFilteredRecords().some(r => r.date === state.selectedDay)) {
+      state.selectedDay = '';
+    }
+    renderAll();
+  });
+
+  els.selectAllDatasetsBtn.addEventListener('click', () => {
+    state.activeFilters = new Set(state.filters.map(item => item.key));
+    renderDatasetFilters();
+    renderAll();
+  });
+
+  els.clearAllDatasetsBtn.addEventListener('click', () => {
+    state.activeFilters = new Set();
+    state.selectedDay = '';
+    renderDatasetFilters();
+    renderAll();
+  });
+
+  els.resetBtn.addEventListener('click', resetFilters);
+
+  els.listViewBtn.addEventListener('click', () => {
+    state.viewMode = 'list';
+    renderAll();
+  });
+
+  els.calendarViewBtn.addEventListener('click', () => {
+    state.viewMode = 'calendar';
+    const baseRecords = getBaseFilteredRecords();
+    ensureCalendarMonth(baseRecords);
+    renderAll();
+  });
+
+  els.prevMonthBtn.addEventListener('click', () => {
+    const baseRecords = getBaseFilteredRecords();
+    const months = getAvailableCalendarMonths(baseRecords);
+    if (!months.length || !state.calendarMonth) return;
+    const idx = months.indexOf(state.calendarMonth);
+    if (idx > 0) {
+      state.calendarMonth = months[idx - 1];
+      state.selectedDay = '';
+      renderAll();
+    }
+  });
+
+  els.nextMonthBtn.addEventListener('click', () => {
+    const baseRecords = getBaseFilteredRecords();
+    const months = getAvailableCalendarMonths(baseRecords);
+    if (!months.length || !state.calendarMonth) return;
+    const idx = months.indexOf(state.calendarMonth);
+    if (idx >= 0 && idx < months.length - 1) {
+      state.calendarMonth = months[idx + 1];
+      state.selectedDay = '';
+      renderAll();
+    }
+  });
+
+  els.monthJumpSelect.addEventListener('change', event => {
+    state.calendarMonth = event.target.value || '';
+    state.selectedDay = '';
+    renderAll();
+  });
+
+  els.clearDayBtn.addEventListener('click', () => {
+    state.selectedDay = '';
+    renderAll();
+  });
+
+
+  // Private testing tabs: do not use this client-only check for security.
+  const SPORTS_USER = 'sam';
+  const venueUI = {active:'events',fixtures:[],selection:{P5:{},HATF:{}},importName:''};
+  try {
+    const cached=JSON.parse(localStorage.getItem('sports_venue_selections_v1')||'{}');
+    for(const v of ['P5','HATF']) if(cached[v]&&typeof cached[v]==='object')venueUI.selection[v]=cached[v];
+  } catch (_) {}
+  const ve = id => document.getElementById(id);
+  const sportDateTime = iso => iso ? new Intl.DateTimeFormat('en-AU',{weekday:'short',day:'numeric',month:'short',hour:'numeric',minute:'2-digit',timeZone:'Australia/Melbourne'}).format(new Date(iso)) : 'TBC';
+  const sportTime = iso => iso ? new Intl.DateTimeFormat('en-AU',{hour:'numeric',minute:'2-digit',timeZone:'Australia/Melbourne'}).format(new Date(iso)) : 'TBC';
+  const venueId = r => [r.match_id||'',r.match_start_local||r.coverage_start_local||'',r.channel_family||r.channel||''].join('|');
+  function saveVenueSelections(){
+    try{localStorage.setItem('sports_venue_selections_v1',JSON.stringify(venueUI.selection));}catch(e){console.warn('Selections not persisted',e)}
+  }
+  function openVenueTab(name){
+    if(name!=='events'&&(!state.user||state.user.username!==SPORTS_USER))return;
+    venueUI.active=name;
+    ve('eventsView').style.display=name==='events'?'':'none';
+    ve('venueSports').style.display=name==='events'?'none':'block';
+    for(const [b,n] of [['tabEvents','events'],['tabP5','P5'],['tabHATF','HATF']])ve(b).classList.toggle('is-active',name===n);
+    if(name!=='events'){
+      ve('venueHeading').textContent=name==='P5'?'Live Sport P5':'Live Sport HATF';
+      ve('venueRules').textContent=name==='P5'?'Plus 5: daily, 10:00 am–10:00 pm':'Henry and the Fox: Monday–Friday, 6:30 am–10:00 pm';
+      renderVenueRows();
+    }
+  }
+  function syncVenueVisibility(){
+    const allowed=!!state.user && state.user.username===SPORTS_USER;
+    ve('venueTabs').style.display=allowed?'flex':'none';
+    if(!allowed)openVenueTab('events');
+  }
+  function sportChoices(select,values,placeholder){
+    const current=select.value;
+    select.innerHTML='<option value="">'+placeholder+'</option>'+Array.from(new Set(values.filter(Boolean))).sort().map(x=>'<option value="'+escapeHtml(x)+'">'+escapeHtml(x)+'</option>').join('');
+    if([...select.options].some(o=>o.value===current))select.value=current;
+  }
+  function melbourneSlot(iso){
+    if(!iso)return null;
+    const date=new Date(iso);
+    if(!Number.isFinite(date.getTime()))return null;
+    const parts=new Intl.DateTimeFormat('en-AU',{timeZone:'Australia/Melbourne',weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date);
+    const fields=Object.fromEntries(parts.map(x=>[x.type,x.value]));
+    return {weekday:fields.weekday,minutes:Number(fields.hour)*60+Number(fields.minute)};
+  }
+  function permittedForVenue(iso,venue){
+    const slot=melbourneSlot(iso);if(!slot)return false;
+    if(venue==='P5')return slot.minutes>=600 && slot.minutes<=1320;
+    return ['Mon','Tue','Wed','Thu','Fri'].includes(slot.weekday) && slot.minutes>=390 && slot.minutes<=1320;
+  }
+  // Only allow externally supplied HTTPS image URLs, never inject unescaped attributes.
+  function safeSportsImage(url,cls,alt){
+    try{const parsed=new URL(url);if(parsed.protocol!=='https:')return '';
+      return `<img class="${cls}" src="${escapeHtml(parsed.href)}" alt="${escapeHtml(alt)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">`;
+    }catch(_){return '';}
+  }
+  function renderVenueRows(){
+    if(venueUI.active==='events')return;
+    const venue=venueUI.active;
+    let rows=venueUI.fixtures.filter(r=>{
+      const iso=r.match_start_local||'';
+      return permittedForVenue(iso,venue)&&r.match_id&&
+      !['replay','highlights_or_replay','studio_or_preview'].includes(r.broadcast_type);
+    });
+    const bySport=r=>r.strSport||r.sport||'Unknown';
+    sportChoices(ve('venueSport'),rows.map(bySport),'All sports');
+    sportChoices(ve('venueDate'),rows.map(r=>(r.match_start_local||r.coverage_start_local||'').slice(0,10)),'All dates');
+    const q=ve('venueSearch').value.toLowerCase().trim();
+    rows=rows.filter(r=>(!ve('venueSport').value||bySport(r)===ve('venueSport').value)&&
+      (!ve('venueDate').value||(r.match_start_local||r.coverage_start_local||'').startsWith(ve('venueDate').value))&&
+      (!q||[r.teams,r.sport,r.competition,r.channel].join(' ').toLowerCase().includes(q))&&
+      (!ve('venueOnlySelected').checked||!!venueUI.selection[venue][venueId(r)]));
+    ve('venueSummary').textContent=`${rows.length} SportsDB TV listings · ${Object.values(venueUI.selection[venue]).filter(Boolean).length} selected for ${venue==='P5'?'Plus 5':'HATF'} · ${venueUI.importName||'Awaiting SportsDB feed'}`;
+    ve('venueRows').innerHTML=rows.length?rows.map(r=>{
+      const key=venueId(r),checked=!!venueUI.selection[venue][key];
+      return `<tr><td><label class="venue-check"><input type="checkbox" data-sport-key="${escapeHtml(key)}" ${checked?'checked':''}> Show</label></td>
+        <td>${escapeHtml(bySport(r))}<div class="small">${escapeHtml(r.competition||'')}</div></td>
+        <td><div class="sport-event">${safeSportsImage(r.strEventThumb||r.event_thumb,'sport-thumb',r.teams||'Event image')}<strong>${escapeHtml(r.teams||r.strEvent||r.sportsdb_event||'')}</strong></div></td>
+        <td>${escapeHtml(sportDateTime(r.match_start_local))}</td>
+        <td><div class="sport-channel">${safeSportsImage(r.strLogo||r.channel_logo,'sport-logo',r.channel||'Channel logo')}<span>${escapeHtml(r.channel||'')}</span></div></td><td class="venue-live">SportsDB TV listing (unverified)</td></tr>`;
+    }).join(''):'<tr><td colspan="6">No SportsDB TV assignments for these filters. Check the review file or try refreshing.</td></tr>';
+    ve('venueRows').querySelectorAll('[data-sport-key]').forEach(input=>input.addEventListener('change',()=>{
+      venueUI.selection[venue][input.dataset.sportKey]=input.checked;
+      saveVenueSelections();renderVenueRows();
+    }));
+  }
+  ve('tabEvents').addEventListener('click',()=>openVenueTab('events'));
+  ve('tabP5').addEventListener('click',()=>openVenueTab('P5'));
+  ve('tabHATF').addEventListener('click',()=>openVenueTab('HATF'));
+  for(const id of ['venueSport','venueDate','venueSearch','venueOnlySelected'])ve(id).addEventListener(id==='venueSearch'?'input':'change',renderVenueRows);
+  ve('venueImport').addEventListener('change',async event=>{
+    const file=event.target.files?.[0];if(!file)return;
+    try{
+      const data=JSON.parse(await file.text());
+      if(!Array.isArray(data.fixtures))throw new Error('Expected a SportsDB fixture JSON containing fixtures[]');
+      venueUI.fixtures=data.fixtures.filter(r=>r&&r.match_id);
+      venueUI.importName=file.name;
+      renderVenueRows();
+    }catch(error){ve('venueSummary').textContent='Import failed: '+error.message;}
+  });
+  let sportsLoading=false;
+  async function loadLatestSports(){
+    if(sportsLoading)return;
+    if(!state.user||state.user.username!==SPORTS_USER)return;
+    sportsLoading=true;
+    ve('venueSummary').textContent='Refreshing latest sports fixtures from S3…';
+    try{
+      const response=await fetch('/internal/sports/latest.json',{cache:'no-store'});
+      if(!response.ok)throw new Error('Sports feed unavailable ('+response.status+')');
+      const payload=await response.json();
+      if(!Array.isArray(payload.fixtures))throw new Error('Invalid sports feed');
+      venueUI.fixtures=payload.fixtures.filter(r=>r&&r.match_id);
+      venueUI.importName='Latest S3 feed' + (payload.generated_at_utc ? ' · updated '+sportDateTime(payload.generated_at_utc) : '');
+      renderVenueRows();
+    }catch(error){
+      ve('venueSummary').textContent='Could not load latest S3 sports feed ('+error.message+'). You can retry or import a local JSON for testing.';
+      console.warn('Sports feed error',error);
+    }finally{sportsLoading=false;}
+  }
+  ve('venueRefresh').addEventListener('click',loadLatestSports);
+  const originalAuthUpdate=updateAuthUI;
+  updateAuthUI=function(){originalAuthUpdate();syncVenueVisibility();if(state.user?.username===SPORTS_USER)loadLatestSports();};
+
+  initialiseApp();
+</script>
+</body>
+</html>
