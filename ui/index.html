@@ -736,6 +736,11 @@
     .venue-status {color:#94a3b8;font-size:.88rem;margin-top:12px}
     .venue-check {display:inline-flex;align-items:center;gap:5px;white-space:nowrap;color:#cbd5e1}
     .sport-event,.sport-channel{display:flex;align-items:center;gap:12px;}
+    .sport-event-details{min-width:0;display:flex;flex-direction:column;gap:3px}
+    .sport-subtitle{font-size:.79rem;color:#b8c8dd;line-height:1.35;white-space:normal}
+    .xml-channel-label{font-size:.78rem;color:#b8c8dd;white-space:normal;overflow-wrap:anywhere;line-height:1.3}
+    .xml-channel-stack{display:flex;flex-direction:column;align-items:flex-start;gap:3px}
+    .xml-channel-stack .sport-logo{width:54px;height:31px}
     .sport-thumb{width:88px;height:54px;object-fit:cover;border-radius:7px;flex-shrink:0;background:#1e293b}
     .sport-logo{width:54px;height:38px;object-fit:contain;flex-shrink:0;}
     .venue-manager-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0}
@@ -1969,7 +1974,7 @@
     const q=ve('venueSearch').value.toLowerCase().trim();
     const rows=whole.filter(r=>(!ve('venueSport').value||bySport(r)===ve('venueSport').value)&&
       (!ve('venueDate').value||(r.match_start_local||'').startsWith(ve('venueDate').value))&&
-      (!q||[eventTitle(r),r.strSport,r.competition,r.channel].join(' ').toLowerCase().includes(q))&&
+      (!q||[eventTitle(r),r.epg_subtitle,r.strSport,r.sport,r.competition,r.channel].join(' ').toLowerCase().includes(q))&&
       (!ve('venueOnlySelected').checked||currentPriority(venue,fixtureId(r))));
     const priorityCount=new Set(whole.filter(r=>currentPriority(venue,fixtureId(r))).map(fixtureId)).size;
     ve('venueSummary').textContent=`${rows.length} free-to-air listings · ${clashes.size} fixture(s) with potential clashes · ${priorityCount} screening priority selection(s)`;
@@ -1982,10 +1987,10 @@
         preference+='<span class="sport-clash">Potential clash · estimated 2-hour duration</span>';
       }
       return `<tr>
-        <td><div class="sport-event"><strong>${escapeHtml(eventTitle(r))}</strong>${r.is_new===true?'<span class="sport-new">NEW</span>':''}</div></td>
+        <td><div class="sport-event"><div class="sport-event-details"><strong>${escapeHtml(eventTitle(r))}</strong>${r.xml_id&&r.epg_subtitle?`<span class="sport-subtitle">${escapeHtml(r.epg_subtitle)}</span>`:''}</div>${r.is_new===true?'<span class="sport-new">NEW</span>':''}</div></td>
         <td>${escapeHtml(bySport(r))}<div class="small">${escapeHtml(r.competition||'')}</div></td>
         <td>${escapeHtml(sportDateTime(r.match_start_local))}</td>
-        <td><div class="sport-channel">${safeSportsImage(r.strLogo||r.channel_logo,'sport-logo',r.channel||'Channel logo')||'<span title="No TV logo available">—</span>'}</div></td>
+        <td><div class="sport-channel">${r.xml_id?`<div class="xml-channel-stack">${safeSportsImage(r.strLogo||r.channel_logo,'sport-logo',r.channel||'Channel logo')||''}<span class="xml-channel-label">${escapeHtml(r.channel||'Unknown channel')}</span></div>`:(safeSportsImage(r.strLogo||r.channel_logo,'sport-logo',r.channel||'Channel logo')||'<span title="No TV logo available">—</span>')}</div></td>
         <td>${preference}</td></tr>`;
     }).join(''):'<tr><td colspan="5">No free-to-air fixtures for these filters.</td></tr>';
     ve('venueRows').querySelectorAll('[data-priority-key]').forEach(input=>input.addEventListener('change',()=>{
@@ -2075,7 +2080,7 @@
       return `<tr><td><strong>${escapeHtml(eventTitle(r))}</strong><div class="small">${escapeHtml(r.epg_subtitle||'')}</div></td>
         <td>${escapeHtml(r.strSport||r.sport||'Sports')}</td>
         <td>${r.match_start_local?escapeHtml(sportDateTime(r.match_start_local)):'—'}</td>
-        <td><div class="sport-channel">${logo||'—'}<div class="small">${escapeHtml(label)}</div></div></td>
+        <td><div class="xml-channel-stack">${logo||''}<span class="xml-channel-label">${escapeHtml(label)}</span></div></td>
         <td><details class="xml-description"><summary aria-label="Read programme description" title="XMLTV description">Info</summary><div class="xml-description-body">${escapeHtml(description)}</div></details></td>
         <td><label class="venue-check"><input type="checkbox" data-omit-title="${escapeHtml(key)}" ${isOmitted(r)?'checked':''}> Omit</label></td></tr>`;
     }).join(''):'<tr><td colspan="6">No programmes match this view.</td></tr>';
