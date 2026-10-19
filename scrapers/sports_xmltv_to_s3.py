@@ -62,10 +62,10 @@ def main():
         stop=parse_date(node.get('stop'))
         key=hashlib.sha256('|'.join([family,normal(title),normal(subtitle)]).encode()).hexdigest()[:24]
         desc=(node.findtext('desc') or '').strip()
-        row={'xml_id':key,'match_id':None,'teams':title,'epg_subtitle':subtitle,'description':desc[:700], 'strSport':'Sports','sport':'Sports','channel':ch,'channel_family':family,'strLogo':logos.get(normal(ch)) or famlogos.get(family),'channel_logo':logos.get(normal(ch)) or famlogos.get(family),'match_start_local':when.isoformat(),'coverage_start_local':when.isoformat(),'coverage_end_local':stop.isoformat() if stop else None,'source':'XMLTV Melbourne','broadcast_type':'xmltv_sports_programme','category':cats,'competition':''}
+        row={'xml_id':key,'match_id':None,'teams':title,'epg_title':title,'epg_subtitle':subtitle,'description':desc, 'strSport':'Sports','sport':'Sports','channel':ch,'channel_family':family,'strLogo':logos.get(normal(ch)) or famlogos.get(family),'channel_logo':logos.get(normal(ch)) or famlogos.get(family),'match_start_local':when.isoformat(),'coverage_start_local':when.isoformat(),'coverage_end_local':stop.isoformat() if stop else None,'source':'XMLTV Melbourne','broadcast_type':'xmltv_sports_programme','category':cats,'competition':''}
         out.append(row)
     out.sort(key=lambda x:(x['match_start_local'],x['channel'],x['teams']))
-    payload={'version':1,'generated_at_utc':dt.datetime.now(dt.timezone.utc).isoformat(),'source':'XMLTV Melbourne','programmes':out,'count':len(out),'notice':'Sports-category TV programmes, not all confirmed live events; omission keys persist by programme, subtitle and channel.'}
+    payload={'version':1,'generated_at_utc':dt.datetime.now(dt.timezone.utc).isoformat(),'source':'XMLTV Melbourne','programmes':out,'count':len(out),'notice':'Sports-category TV programmes, not all confirmed live events; title-only omission rules apply across channels, subtitles and future scrapes.'}
     target=Path('data/sports-xmltv.json');target.parent.mkdir(exist_ok=True);target.write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding='utf8')
     print('XMLTV sports programmes:',len(out),'local file:',target,'logo matches:',sum(bool(x['strLogo']) for x in out))
     if a.upload:

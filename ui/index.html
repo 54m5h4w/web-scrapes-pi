@@ -746,7 +746,10 @@
 .venue-tabbar button{min-height:45px;padding:10px 22px;font-size:15px;font-weight:700;border-radius:9px}
 .venue-tabbar button.is-active{background:#2563eb;border-color:#60a5fa;color:white}
 @media(max-width:640px){.venue-tabbar{flex-direction:column}.venue-tabbar button{width:100%}}
-</style>
+
+    .xml-description summary{cursor:pointer;color:var(--accent,#60a5fa);font-weight:600;white-space:nowrap}
+    .xml-description-body{max-width:440px;padding:9px 0;line-height:1.5;white-space:normal;color:inherit}
+    </style>
 </head>
 <body>
   <div id="loginOverlay" class="overlay" style="display:none;">
@@ -801,7 +804,7 @@
       <label>Channel <select id="xmlAuditChannel"><option value="">All channels</option></select></label></div>
       <div id="xmlAuditSummary" class="venue-status"></div>
       <div id="xmlAuditActions" class="venue-manager-actions"><button type="button" id="xmlExportOmissions" class="btn-secondary">Export omissions to S3</button><span class="small">Download JSON then upload to S3 to share. Changes on this device take effect immediately.</span></div>
-      <div class="venue-table-wrap"><table class="venue-table"><thead><tr><th>Teams / Event</th><th>Sport</th><th>Start Time</th><th>Channel</th><th>Omit from both venues</th></tr></thead><tbody id="xmlAuditRows"></tbody></table></div>
+      <div class="venue-table-wrap"><table class="venue-table"><thead><tr><th>Teams / Event</th><th>Sport</th><th>Start Time</th><th>Channel</th><th>Info</th><th>Omit title (both venues)</th></tr></thead><tbody id="xmlAuditRows"></tbody></table></div>
     </section>
     <section id="venueSports" class="panel" style="display:none" aria-label="Private sports testing">
       <h2 id="venueHeading">Live Sport</h2>
@@ -1894,7 +1897,7 @@
   const fixtureId = r => r.xml_id ? 'xml:'+r.xml_id+'|'+String(r.match_start_local||'') : String(r.match_id||'')+'|'+String(r.match_start_local||'');
   const startMs = r => Date.parse(r.match_start_local||'');
   function validVenueFixture(r,venue){
-    const ms=startMs(r);if(!Number.isFinite(ms)||(!r.match_id&&!r.xml_id)|| (r.xml_id&&venueUI.omissions[r.xml_id]))return false;
+    const ms=startMs(r);if(!Number.isFinite(ms)||(!r.match_id&&!r.xml_id)|| (r.xml_id&&isOmitted(r)))return false;
     if(['replay','highlights_or_replay','studio_or_preview'].includes(r.broadcast_type))return false;
     // XMLTV's Sports category also includes recorded shows; never silently present
     // these as live screening options. They remain visible in XMLTV Review.
@@ -1907,6 +1910,13 @@
     return venue==='P5'?(minutes>=600&&minutes<=1320):(['Mon','Tue','Wed','Thu','Fri'].includes(v.weekday)&&minutes>=390&&minutes<=1320);
   }
   function eventTitle(r){return r.teams||r.strEvent||r.sportsdb_event||'Sporting event';}
+  // A programme title is an enduring omission rule across channels, subtitles and dates.
+  const normXMLTitle = value => String(value||'').normalize('NFKC').trim().replace(/\s+/g,' ').toLocaleLowerCase('en-AU');
+  const titleRule = r => 'title:'+normXMLTitle(r.epg_title||r.teams||r.strEvent||'');
+  const isOmitted = r => venueUI.omissions[titleRule(r)]===true ||
+    // Backwards compatibility with V22 channel+subtitle omission keys.
+    (venueUI.omissions[titleRule(r)]!==false && venueUI.omissions[r.xml_id]===true);
+
   // When no broadcast end is supplied, use an explicit *estimated* two-hour screening block
   // for clash detection. The actual end of an event may differ.
   const ESTIMATED_EVENT_MINUTES = 120;
@@ -2013,8 +2023,7 @@
     const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='sports-priorities.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);
     ve('venuePriorityNote').textContent='Priority file downloaded. Publish sports-priorities.json to S3 for staff to see the changes.';
   });
-  // Omission keys are generated upstream from normalised programme, subtitle and channel,
-  // deliberately excluding the broadcast date so future appearances remain hidden.
+  // Title-only omission rules apply to every channel, subtitle and future scrape.
   function mergedOmissions(){
     try{return {...venueUI.omissions,...JSON.parse(localStorage.getItem('sports-xml-omissions-v1')||'{}')};}
     catch(_){return venueUI.omissions;}
@@ -2028,6 +2037,10 @@
   function setOmission(key,enabled){
     if(!samMode())return;
     venueUI.omissions[key]=!!enabled;
+    // A restored title must not remain hidden by an old V22 per-channel rule.
+    if(!enabled && key.startsWith('title:')){
+      for(const r of venueUI.xml)if(titleRule(r)===key && r.xml_id)venueUI.omissions[r.xml_id]=false;
+    }
     localStorage.setItem('sports-xml-omissions-v1',JSON.stringify(venueUI.omissions));
     renderXMLAudit();if(['P5','HATF'].includes(venueUI.active))renderVenueRows();
   }
@@ -2035,20 +2048,38 @@
     if(!['xml','omitted'].includes(venueUI.active))return;
     const omittedTab=venueUI.active==='omitted';
     ve('xmlAuditHeading').textContent=omittedTab?'Omitted Programmes':'XMLTV Review';
-    ve('xmlAuditNotice').textContent=omittedTab?'Uncheck Omit to return this programme to the venue screening lists.':'Search programmes and omit those you do not want included for either venue.';
+    ve('xmlAuditNotice').textContent=omittedTab?'These title-wide rules also apply to future XMLTV scrapes. Uncheck to restore a title.':'Omit a title across every channel, subtitle, date and future XMLTV scrape.';
     const all=venueUI.xml;
     sportChoices(ve('xmlAuditChannel'),all.map(x=>x.channel),'All channels');
     const q=ve('xmlAuditSearch').value.trim().toLowerCase(),ch=ve('xmlAuditChannel').value;
     const seen=new Set();
-    const rows=all.filter(r=>{
-      const omit=!!venueUI.omissions[r.xml_id];if(omittedTab!==omit)return false;
+    let rows=all.filter(r=>{
+      const omitted=isOmitted(r);if(omittedTab!==omitted)return false;
       if(ch&&ch!==r.channel)return false;
-      if(q&&![eventTitle(r),r.sport,r.channel,r.epg_subtitle].join(' ').toLowerCase().includes(q))return false;
-      if(omittedTab){if(seen.has(r.xml_id))return false;seen.add(r.xml_id);}return true;
+      if(q&&![eventTitle(r),r.sport,r.channel,r.epg_subtitle,r.description].join(' ').toLowerCase().includes(q))return false;
+      if(omittedTab){const key=titleRule(r);if(seen.has(key))return false;seen.add(key);}
+      return true;
     }).sort((a,b)=>(a.match_start_local||'').localeCompare(b.match_start_local||''));
-    ve('xmlAuditSummary').textContent=`${rows.length} ${omittedTab?'omitted programme rules':'XMLTV listings'} · ${all.length} total XMLTV listings`;
-    ve('xmlAuditRows').innerHTML=rows.length?rows.map(r=>`<tr><td><strong>${escapeHtml(eventTitle(r))}</strong><div class="small">${escapeHtml(r.epg_subtitle||'')}</div></td><td>${escapeHtml(r.strSport||r.sport||'Sports')}</td><td>${escapeHtml(sportDateTime(r.match_start_local))}</td><td>${safeSportsImage(r.strLogo||r.channel_logo,'sport-logo',r.channel||'TV channel')||'—'}</td><td><label class="venue-check"><input type="checkbox" data-omit="${escapeHtml(r.xml_id)}" ${venueUI.omissions[r.xml_id]?'checked':''}> Omit</label></td></tr>`).join(''):'<tr><td colspan="5">No programmes match this view.</td></tr>';
-    ve('xmlAuditRows').querySelectorAll('[data-omit]').forEach(el=>el.addEventListener('change',()=>setOmission(el.dataset.omit,el.checked)));
+    // Keep old omissions visible even if the programme is absent from this week's XML feed.
+    if(omittedTab&&!ch){
+      const absent=Object.entries(venueUI.omissions).filter(([key,on])=>key.startsWith('title:')&&on&&!seen.has(key))
+        .map(([key])=>({teams:key.slice(6),epg_title:key.slice(6),channel:'',description:'Not in the current XMLTV feed. This title will be omitted if it returns.',xml_id:'',match_start_local:null,_titleRule:key}));
+      rows=[...rows,...absent.filter(r=>!q||eventTitle(r).toLowerCase().includes(q))];
+    }
+    ve('xmlAuditSummary').textContent=`${rows.length} ${omittedTab?'omitted titles':'XMLTV listings'} · ${all.length} total XMLTV listings`;
+    ve('xmlAuditRows').innerHTML=rows.length?rows.map(r=>{
+      const key=r._titleRule||titleRule(r);
+      const label=r.channel||'—';
+      const logo=safeSportsImage(r.strLogo||r.channel_logo,'sport-logo',label);
+      const description=r.description||'No XMLTV description supplied';
+      return `<tr><td><strong>${escapeHtml(eventTitle(r))}</strong><div class="small">${escapeHtml(r.epg_subtitle||'')}</div></td>
+        <td>${escapeHtml(r.strSport||r.sport||'Sports')}</td>
+        <td>${r.match_start_local?escapeHtml(sportDateTime(r.match_start_local)):'—'}</td>
+        <td><div class="sport-channel">${logo||'—'}<div class="small">${escapeHtml(label)}</div></div></td>
+        <td><details class="xml-description"><summary aria-label="Read programme description" title="XMLTV description">Info</summary><div class="xml-description-body">${escapeHtml(description)}</div></details></td>
+        <td><label class="venue-check"><input type="checkbox" data-omit-title="${escapeHtml(key)}" ${isOmitted(r)?'checked':''}> Omit</label></td></tr>`;
+    }).join(''):'<tr><td colspan="6">No programmes match this view.</td></tr>';
+    ve('xmlAuditRows').querySelectorAll('[data-omit-title]').forEach(el=>el.addEventListener('change',()=>setOmission(el.dataset.omitTitle,el.checked)));
   }
   for(const id of ['xmlAuditSearch','xmlAuditChannel'])ve(id).addEventListener(id==='xmlAuditSearch'?'input':'change',renderXMLAudit);
   ve('xmlExportOmissions').addEventListener('click',()=>{
@@ -2063,6 +2094,10 @@
     try{const r=await fetch('/internal/sports/xmltv-latest.json',{cache:'no-store'});
       if(!r.ok)throw new Error(`HTTP ${r.status}`);const data=await r.json();
       venueUI.xml=(Array.isArray(data.programmes)?data.programmes:[]).filter(r=>r&&r.xml_id&&r.match_start_local);
+      // Migrate matching legacy channel/subtitle rules to title-wide rules.
+      let migrated=false;
+      for(const row of venueUI.xml){if(venueUI.omissions[row.xml_id]===true && venueUI.omissions[titleRule(row)]!==true){venueUI.omissions[titleRule(row)]=true;migrated=true;}}
+      if(migrated)localStorage.setItem('sports-xml-omissions-v1',JSON.stringify(venueUI.omissions));
       renderXMLAudit();if(['P5','HATF'].includes(venueUI.active))renderVenueRows();
     }catch(e){console.info('XMLTV list not published yet:',e.message);}
   }
