@@ -764,7 +764,23 @@
     .xml-description-popup summary::-webkit-details-marker{display:none}
     .xml-description-popup[open] .xml-description-body{position:absolute;left:0;top:26px;z-index:40;width:min(400px,70vw);padding:14px;background:#172438;border:1px solid #607999;border-radius:9px;box-shadow:0 8px 30px #0009;font-size:13px}
 
-    </style>
+    
+    .sport-info{display:inline-flex;vertical-align:middle;justify-content:center;align-items:center;width:18px;height:18px;border-radius:50%;border:1px solid #7890b0;color:#d2e3ff;font:700 11px Arial;margin-left:4px;cursor:help}
+    .sport-help-pop{position:relative;cursor:pointer}
+    .sport-help-pop button{border:0;background:transparent;color:inherit;font-weight:700;cursor:pointer;width:100%;height:100%;padding:0}
+    .sport-help-content{position:absolute;z-index:60;top:24px;right:0;min-width:270px;max-width:350px;background:#172438;border:1px solid #607999;border-radius:8px;padding:13px;text-align:left;color:#dce8f8;box-shadow:0 8px 25px #000a;display:none;font:normal 12px/1.5 Arial}
+    .sport-help-pop:hover .sport-help-content,.sport-help-pop:focus-within .sport-help-content{display:block}
+    .sport-switch{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-size:11px;white-space:nowrap}
+    .sport-switch input{position:absolute;opacity:0;width:1px;height:1px}
+    .sport-switch-track{position:relative;width:30px;height:16px;border-radius:10px;background:#43526b;transition:background .15s;flex:none}
+    .sport-switch-track:after{content:'';position:absolute;left:2px;top:2px;width:12px;height:12px;border-radius:50%;background:#fff;transition:transform .15s}
+    .sport-switch input:checked+.sport-switch-track{background:#2671df}
+    .sport-switch input:checked+.sport-switch-track:after{transform:translateX(14px)}
+    .sport-switch input:focus-visible+.sport-switch-track{outline:2px solid #fbbf24;outline-offset:2px}
+    .venue-table tr.sport-dimmed{opacity:.42;background:rgba(135,150,174,.06)}
+    .venue-table tr.sport-dimmed:hover{opacity:.8}
+    .sport-clash-details summary{color:#fbbf24}
+</style>
 </head>
 <body>
   <div id="loginOverlay" class="overlay" style="display:none;">
@@ -830,14 +846,14 @@
         <label class="venue-check"><input id="venueOnlySelected" type="checkbox"> Screening priority only</label>
       </div>
       <div id="venueRules" class="venue-status"></div>
-      <div class="venue-manager-actions" id="venueOmitActions" style="display:none"><button type="button" id="venueExportOmissions" class="btn-secondary">Export omitted programmes</button><span class="small">Selections are local until the JSON is uploaded to S3</span></div>
-      <div id="venueManagerActions" class="venue-manager-actions" style="display:none"><button type="button" id="venueExportPriorities" class="btn-secondary">Export screening priorities & exclusions</button><span class="small">Manager draft — export and publish to S3 to share with staff</span></div>
+      <div class="venue-manager-actions" id="venueOmitActions" style="display:none"></div>
+      <div id="venueManagerActions" class="venue-manager-actions" style="display:none"></div>
       <div class="venue-manager-actions"><button type="button" id="venueExportPDF" class="btn-secondary">Export TV schedule (PDF)</button><span class="small">Opens a print-ready schedule — choose Save as PDF in the browser.</span></div>
       <div id="venueSummary" class="venue-status">Loading XMLTV broadcasts from S3…</div>
       <div class="venue-table-wrap"><table class="venue-table"><thead><tr>
-        <th>Teams / Event</th><th>Broadcast Start Time*</th><th>Broadcast End Time</th><th>Channel</th><th>Screening Priority</th><th>PDF</th><th class="sam-only-omit">Omit</th>
+        <th>Teams / Event</th><th>Broadcast Start Time <span class="sport-info" title="Actual event start time may differ from broadcast start time." aria-label="About broadcast start time">i</span></th><th>Broadcast End Time <span class="sport-info" title="Actual event end time may differ from broadcast end time." aria-label="About broadcast end time">i</span></th><th>Channel</th><th>Screening Priority <span class="sport-info sport-help-pop"><button type="button" aria-label="About screening priority">i</button><span class="sport-help-content">If a clash is detected, select the event you would prefer to show. Other overlapping programmes will remain in the PDF as alternatives in case of cancellation, rain delays or schedule changes.</span></span></th><th>PDF</th><th class="sam-only-omit">Omit</th>
       </tr></thead><tbody id="venueRows"><tr><td colspan="7">Loading XMLTV broadcasts…</td></tr></tbody></table></div>
-      <p class="venue-status" id="venuePriorityNote">*Actual sport start time may vary. A clash is shown only where XMLTV broadcast times overlap. Managers can nominate preferred screening; staff see this as a guide.</p>
+      <p class="venue-status" id="venuePriorityNote">Clashes are based on XMLTV broadcast start and end times. Alternate screenings remain listed as backups. Preferences made here are local to this browser until separately published.</p>
     </section>
     <div id="eventsView">
     <section class="panel">
@@ -1910,7 +1926,7 @@
   const sportDateTime = iso => iso ? new Intl.DateTimeFormat('en-AU',{weekday:'short',day:'numeric',month:'short',hour:'numeric',minute:'2-digit',timeZone:'Australia/Melbourne'}).format(new Date(iso)) : 'TBC';
   const samMode = () => !!state.user && state.user.username==='sam';
   const managerMode = () => !!state.user && ['admin','manager'].includes(state.user.role);
-  const userVenueAccess = venue => !!state.user && (state.user.role==='admin' || (state.user.allowedVenues||[]).includes('ALL') || (state.user.allowedVenues||[]).includes(venue));
+  const userVenueAccess = venue => managerMode() && (state.user.role==='admin' || (state.user.allowedVenues||[]).includes('ALL') || (state.user.allowedVenues||[]).includes(venue));
   const fixtureId = r => 'xml:'+r.xml_id+'|'+String(r.coverage_start_local||r.match_start_local||'')+'|'+String(r.channel||'');
   const startMs = r => Date.parse(r.coverage_start_local||r.match_start_local||'');
   const endMs = r => Date.parse(r.coverage_end_local||'');
@@ -1989,7 +2005,7 @@
       const title=r.epg_title||eventTitle(r),detail=eventTitle(r)!==title?`<div class="sub">${escapeHtml(eventTitle(r))}</div>`:'';
       return `<tr class="${dim?'dim':''}"><td><b>${escapeHtml(title)}</b>${detail}</td><td>${escapeHtml(sportDateTime(r.coverage_start_local))}</td><td>${escapeHtml(sportDateTime(r.coverage_end_local))}</td><td>${escapeHtml(r.channel||'—')}</td><td>${selected?'<span class="preferred">Preferred screening</span>':hasPreferredAlternative?'Alternative':'—'}</td></tr>`;
     }).join('')}</tbody></table></section>`).join('');
-    const html=`<!doctype html><html><head><meta charset="utf-8"><title>${venue==='P5'?'Plus 5':'Henry and the Fox'} — TV schedule</title>${style}</head><body><h1>${venue==='P5'?'Plus 5':'Henry and the Fox'} — Upcoming TV Schedule</h1><p>Melbourne broadcast times · Generated ${escapeHtml(new Date().toLocaleString('en-AU',{timeZone:'Australia/Melbourne'}))} · ${rows.length} broadcasts</p>${sections||'<p>No programmes for this venue.</p>'}<p class="foot">*Actual sport start time may vary. Grey entries overlap a selected preferred screening. Omitted programmes and manager-marked Do not show entries are excluded.</p></body></html>`;
+    const html=`<!doctype html><html><head><meta charset="utf-8"><title>${venue==='P5'?'Plus 5':'Henry and the Fox'} — TV schedule</title>${style}</head><body><h1>${venue==='P5'?'Plus 5':'Henry and the Fox'} — Upcoming TV Schedule</h1><p>Melbourne broadcast times · Generated ${escapeHtml(new Date().toLocaleString('en-AU',{timeZone:'Australia/Melbourne'}))} · ${rows.length} broadcasts</p>${sections||'<p>No programmes for this venue.</p>'}<p class="foot">*Actual sport start time may vary. Grey entries overlap a selected preferred screening. Omitted programmes and manager-marked Omit from PDF entries are excluded.</p></body></html>`;
     const w=window.open('','_blank');if(!w){alert('Allow pop-ups to export your TV schedule.');return;}
     w.document.open();w.document.write(html);w.document.close();w.focus();setTimeout(()=>{try{w.print();}catch(e){console.warn('Print dialogue unavailable:',e);}},350);
   }
@@ -2009,7 +2025,7 @@
       const key=fixtureId(r),conflicts=clashes.get(key),priority=currentPriority(venue,key),label=r.epg_title||eventTitle(r);
       let preference='—';
       if(conflicts){
-        if(managerMode())preference=`<label class="venue-check"><input type="checkbox" data-priority-key="${escapeHtml(key)}" ${priority?'checked':''}> Preferred screening</label>`;
+        if(managerMode())preference=`<label class="sport-switch"><input type="checkbox" data-priority-key="${escapeHtml(key)}" ${priority?'checked':''}><span class="sport-switch-track"></span><span>${priority?'Preferred':'Prefer'}</span></label>`;
         else preference=priority?'<span class="sport-priority">Preferred screening</span>':'—';
         const others=conflicts.filter(id=>id!==key).map(id=>wholeById.get(id)).filter(Boolean);
         const overlapList=others.map(other=>{
@@ -2018,16 +2034,18 @@
           const to=sportDateTime(other.coverage_end_local);
           return `<li>${escapeHtml(otherTitle)} — ${escapeHtml(from)}–${escapeHtml(to)} · ${escapeHtml(other.channel||'Unknown channel')}</li>`;
         }).join('');
-        preference+=`<details class="sport-clash-details"><summary>Clashes with: ${escapeHtml(others.map(eventTitle).join('; '))}</summary><ul>${overlapList}</ul></details>`;
+        preference+=`<details class="sport-clash-details"><summary>Clash detected <span class="sport-info" aria-label="View overlapping programmes">i</span></summary><ul>${overlapList}</ul></details>`;
       }
       const descriptionHtml=r.description?`<details class="xml-description xml-description-popup"><summary aria-label="View XMLTV description" title="View XMLTV description">i</summary><div class="xml-description-body">${escapeHtml(r.description)}</div></details>`:'';
       const detail=eventTitle(r)!==label?`<span class="sport-subtitle">${escapeHtml(eventTitle(r))}</span>`:'';
-      return `<tr><td><div class="sport-event-details"><div class="sport-title-with-info"><strong>${escapeHtml(label)}</strong>${descriptionHtml}</div>${detail}</div></td>
+      const alternativeSelected=!!conflicts && conflicts.some(id=>id!==key&&currentPriority(venue,id));
+      const dimmed=alternativeSelected&&!priority;
+      return `<tr class="${dimmed?'sport-dimmed':''}"><td><div class="sport-event-details"><div class="sport-title-with-info"><strong>${escapeHtml(label)}</strong>${descriptionHtml}</div>${detail}</div></td>
         <td>${escapeHtml(sportDateTime(r.coverage_start_local||r.match_start_local))}</td>
         <td>${escapeHtml(r.coverage_end_local?sportDateTime(r.coverage_end_local):'—')}</td>
         <td>${escapeHtml(r.channel||'Unknown channel')}</td>
         <td>${preference}</td>
-        <td>${managerMode()?`<label class="venue-check"><input type="checkbox" data-pdf-hide="${escapeHtml(key)}" ${pdfHidden(venue,key)?'checked':''}> Do not show</label>`:pdfHidden(venue,key)?'Excluded':'—'}</td>
+        <td>${managerMode()?`<label class="sport-switch"><input type="checkbox" data-pdf-hide="${escapeHtml(key)}" ${pdfHidden(venue,key)?'checked':''}><span class="sport-switch-track"></span><span>Omit from PDF</span></label>`:pdfHidden(venue,key)?'Omitted from PDF':'—'}</td>
         ${samMode()?`<td><label class="venue-check"><input type="checkbox" data-omit-title="${escapeHtml(titleRule(r))}"> Omit title</label></td>`:''}</tr>`;
     }).join(''):'<tr><td colspan="7">No eligible XMLTV broadcasts for these filters.</td></tr>';
     ve('venueRows').querySelectorAll('[data-priority-key]').forEach(input=>input.addEventListener('change',()=>{
@@ -2058,7 +2076,7 @@
       renderVenueRows();
     }catch(e){console.warn('Shared priority file not available:',e);}
   }
-  ve('venueExportPriorities').addEventListener('click',()=>{
+  ve('venueExportPriorities')?.addEventListener('click',()=>{
     if(!managerMode())return;
     const result={version:2,updated_at:new Date().toISOString(),P5:{...venueUI.priorities.P5},HATF:{...venueUI.priorities.HATF},do_not_show:venueUI.doNotShow};
     for(const v of ['P5','HATF'])for(const [id,isOn] of Object.entries(venueUI.draft[v])){
@@ -2127,7 +2145,7 @@
     ve('xmlAuditNotice').textContent='Downloaded sports-omissions.json. Upload to S3 for shared omissions.';
   }
   ve('xmlExportOmissions').addEventListener('click',exportOmissions);
-  ve('venueExportOmissions').addEventListener('click',exportOmissions);
+  ve('venueExportOmissions')?.addEventListener('click',exportOmissions);
   async function loadXMLTV(){
     try{const r=await fetch('/internal/sports/xmltv-latest.json',{cache:'no-store'});
       if(!r.ok)throw new Error(`HTTP ${r.status}`);const data=await r.json();
