@@ -2016,7 +2016,16 @@
     const lookup=new Map();for(const [id,neighbors] of adjacency)if(neighbors.size)lookup.set(id,[id,...neighbors]);
     return lookup;
   }
-  function allVenueRows(venue){return venueUI.xml.filter(r=>validVenueFixture(r,venue));}
+  function allVenueRows(venue){
+    const now=Date.now();
+    return venueUI.xml.filter(r=>{
+      if(!validVenueFixture(r,venue))return false;
+      const end=endMs(r);
+      const start=startMs(r);
+      if(Number.isFinite(end))return end>now;
+      return Number.isFinite(start)&&start>now;
+    });
+  }
   const pdfHidden=(venue,id)=>venueUI.doNotShow[venue]?.[id]===true;
   function currentPriority(venue,id){return (venueUI.draft[venue]||{})[id]===true||(venueUI.priorities[venue]||{})[id]===true && (venueUI.draft[venue]||{})[id]!==false;}
   function openVenueTab(name){
