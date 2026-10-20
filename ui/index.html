@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -780,6 +780,41 @@
     .venue-table tr.sport-dimmed{opacity:.42;background:rgba(135,150,174,.06)}
     .venue-table tr.sport-dimmed:hover{opacity:.8}
     .sport-clash-details summary{color:#fbbf24}
+</style>
+<style id="sports-v33-fixes">
+.sport-clash-details {
+    position: relative;
+    display: inline-block;
+}
+.sport-clash-details > summary {
+    cursor: pointer;
+    list-style: none;
+    white-space: nowrap;
+}
+.sport-clash-details > summary::-webkit-details-marker {
+    display: none;
+}
+.sport-clash-details > ul {
+    position: absolute;
+    z-index: 1000;
+    top: 100%;
+    right: 0;
+    width: 340px;
+    max-width: 80vw;
+    max-height: 240px;
+    overflow-y: auto;
+    padding: 14px 18px 14px 30px;
+    margin: 5px 0 0;
+    background: #172235;
+    color: #fff;
+    border: 1px solid #475569;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.35);
+    white-space: normal;
+}
+.sport-clash-details:not([open]) > ul {
+    display: none;
+}
 </style>
 </head>
 <body>
@@ -2005,7 +2040,42 @@
       const title=r.epg_title||eventTitle(r),detail=eventTitle(r)!==title?`<div class="sub">${escapeHtml(eventTitle(r))}</div>`:'';
       return `<tr class="${dim?'dim':''}"><td><b>${escapeHtml(title)}</b>${detail}</td><td>${escapeHtml(sportDateTime(r.coverage_start_local))}</td><td>${escapeHtml(sportDateTime(r.coverage_end_local))}</td><td>${escapeHtml(r.channel||'—')}</td><td>${selected?'<span class="preferred">Preferred screening</span>':hasPreferredAlternative?'Alternative':'—'}</td></tr>`;
     }).join('')}</tbody></table></section>`).join('');
-    const html=`<!doctype html><html><head><meta charset="utf-8"><title>${venue==='P5'?'Plus 5':'Henry and the Fox'} — TV schedule</title>${style}</head><body><h1>${venue==='P5'?'Plus 5':'Henry and the Fox'} — Upcoming TV Schedule</h1><p>Melbourne broadcast times · Generated ${escapeHtml(new Date().toLocaleString('en-AU',{timeZone:'Australia/Melbourne'}))} · ${rows.length} broadcasts</p>${sections||'<p>No programmes for this venue.</p>'}<p class="foot">*Actual sport start time may vary. Grey entries overlap a selected preferred screening. Omitted programmes and manager-marked Omit from PDF entries are excluded.</p></body></html>`;
+    const html=`<!doctype html><html><head><meta charset="utf-8"><title>${venue==='P5'?'Plus 5':'Henry and the Fox'} — TV schedule</title>${style}<style id="sports-v33-fixes">
+.sport-clash-details {
+    position: relative;
+    display: inline-block;
+}
+.sport-clash-details > summary {
+    cursor: pointer;
+    list-style: none;
+    white-space: nowrap;
+}
+.sport-clash-details > summary::-webkit-details-marker {
+    display: none;
+}
+.sport-clash-details > ul {
+    position: absolute;
+    z-index: 1000;
+    top: 100%;
+    right: 0;
+    width: 340px;
+    max-width: 80vw;
+    max-height: 240px;
+    overflow-y: auto;
+    padding: 14px 18px 14px 30px;
+    margin: 5px 0 0;
+    background: #172235;
+    color: #fff;
+    border: 1px solid #475569;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.35);
+    white-space: normal;
+}
+.sport-clash-details:not([open]) > ul {
+    display: none;
+}
+</style>
+</head><body><h1>${venue==='P5'?'Plus 5':'Henry and the Fox'} — Upcoming TV Schedule</h1><p>Melbourne broadcast times · Generated ${escapeHtml(new Date().toLocaleString('en-AU',{timeZone:'Australia/Melbourne'}))} · ${rows.length} broadcasts</p>${sections||'<p>No programmes for this venue.</p>'}<p class="foot">*Actual sport start time may vary. Grey entries overlap a selected preferred screening. Omitted programmes and manager-marked Omit from PDF entries are excluded.</p></body></html>`;
     const w=window.open('','_blank');if(!w){alert('Allow pop-ups to export your TV schedule.');return;}
     w.document.open();w.document.write(html);w.document.close();w.focus();setTimeout(()=>{try{w.print();}catch(e){console.warn('Print dialogue unavailable:',e);}},350);
   }
@@ -2039,7 +2109,7 @@
       const descriptionHtml=r.description?`<details class="xml-description xml-description-popup"><summary aria-label="View XMLTV description" title="View XMLTV description">i</summary><div class="xml-description-body">${escapeHtml(r.description)}</div></details>`:'';
       const detail=eventTitle(r)!==label?`<span class="sport-subtitle">${escapeHtml(eventTitle(r))}</span>`:'';
       const alternativeSelected=!!conflicts && conflicts.some(id=>id!==key&&currentPriority(venue,id));
-      const dimmed=alternativeSelected&&!priority;
+      const dimmed=(alternativeSelected&&!priority)||pdfHidden(venue,key);
       return `<tr class="${dimmed?'sport-dimmed':''}"><td><div class="sport-event-details"><div class="sport-title-with-info"><strong>${escapeHtml(label)}</strong>${descriptionHtml}</div>${detail}</div></td>
         <td>${escapeHtml(sportDateTime(r.coverage_start_local||r.match_start_local))}</td>
         <td>${escapeHtml(r.coverage_end_local?sportDateTime(r.coverage_end_local):'—')}</td>
