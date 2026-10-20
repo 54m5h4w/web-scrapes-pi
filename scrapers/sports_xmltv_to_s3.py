@@ -90,34 +90,43 @@ def extract_matchup(title, subtitle, description):
 
 
 def prefer_detailed_programmes(rows):
-    """For identical channel-family/title/start, suppress generic duplicates.
+    """Choose the most informative programme for an identical TV broadcast slot.
 
-    Do not collapse two distinct, identified matchups merely because the EPG
-    broadcaster gave them the same title/time. Retain an original generic row
-    when no more informative alternative exists.
+    Distinct identified team matchups in the same slot survive for review;
+    venue-only and generic duplicates do not survive alongside team matchups.
     """
     groups = {}
     for row in rows:
-        key = (row['channel_family'], row['coverage_start_local'], normal(row['epg_title']))
+        key = (row['channel_family'], row['coverage_start_local'],
+               row.get('coverage_end_local'), normal(row['epg_title']))
         groups.setdefault(key, []).append(row)
+
+    def is_matchup(row):
+        return bool(re.search(r'\s+v(?:s\.?)?\s+', row.get('teams') or '', re.I))
+
+    def score(row):
+        ch = normal(row.get('channel'))
+        return (bool(row.get('epg_subtitle')), bool(row.get('description')),
+                len(row.get('description') or ''),
+                not (' hd ' in (' ' + ch + ' ') or ' h d ' in (' ' + ch + ' ')))
+
     chosen = []
     for group in groups.values():
-        informative = [r for r in group if normal(r['teams']) != normal(r['epg_title'])]
-        candidates = informative if informative else group
-        # Deduplicate HD/SD and repeated variants of the same named fixture.
-        unique = {}
-        for r in candidates:
-            key = normal(r['teams'])
-            ch = normal(r['channel'])
-            score = (
-                bool(r.get('epg_subtitle')),
-                bool(r.get('description')),
-                len(r.get('description') or ''),
-                not any(tag in ch for tag in (' hd ', ' h d ')),
-            )
-            if key not in unique or score > unique[key][0]:
-                unique[key] = (score, r)
-        chosen.extend(x[1] for x in unique.values())
+        fixtures = [r for r in group if is_matchup(r)]
+        if fixtures:
+            # Keep distinct named fixtures, but one best HD/SD record per fixture.
+            candidate_rows = fixtures
+        else:
+            # When no team pair exists, pick one detailed venue/generic record.
+            candidate_rows = [max(group, key=lambda r: (
+                normal(r.get('teams')) != normal(r.get('epg_title')),
+                *score(r)))]
+        best = {}
+        for row in candidate_rows:
+            identity = normal(row.get('teams'))
+            if identity not in best or score(row) > score(best[identity]):
+                best[identity] = row
+        chosen.extend(best.values())
     return chosen
 
 def main():
