@@ -819,6 +819,15 @@
   .venue-tabbar button {flex:1 1 145px;width:auto;min-height:44px;font-size:13px;padding:9px 10px}
 }
 @media(max-width:430px){#venueSports .venue-table tbody td{grid-template-columns:minmax(90px,37%) minmax(0,1fr);gap:8px}}
+
+    .venue-howto{border:1px solid #39506d;border-radius:9px;margin:12px 0 16px;background:#101c2d;color:#dbe7f6}
+    .venue-howto>summary{cursor:pointer;padding:13px 15px;font-weight:700;list-style:revert;outline-offset:3px}
+    .venue-howto>summary:hover{background:#1a2a40}
+    .venue-howto-hint{font-weight:400;font-size:.85em;color:#adc0d7}
+    .venue-howto-content{padding:0 16px 13px;line-height:1.55;font-size:.9rem}
+    .venue-howto-content p{margin:10px 0}
+    .venue-howto-caveat{border-top:1px solid #30435a;padding-top:12px;color:#b9c9dd}
+    @media(max-width:700px){.venue-howto>summary{padding:14px 12px}.venue-howto-content{padding:0 12px 13px}}
 </style>
 </head>
 <body>
@@ -887,7 +896,18 @@
       <div id="venueRules" class="venue-status"></div>
       <div class="venue-manager-actions" id="venueOmitActions" style="display:none"></div>
       <div id="venueManagerActions" class="venue-manager-actions" style="display:none"></div>
-      <div class="venue-manager-actions"><button type="button" id="venueExportPDF" class="btn-secondary">Export TV schedule (PDF)</button><span class="small">Opens a print-ready schedule — choose Save as PDF in the browser.</span></div>
+      <div class="venue-manager-actions"><button type="button" id="venueExportPDF" class="btn-secondary">Export TV schedule (PDF)</button><button type="button" id="venueResetPriorities" class="btn-secondary" style="display:none">Clear preferred screenings</button><span class="small">Opens a print-ready schedule — choose Save as PDF in the browser.</span></div>
+      <details class="venue-howto" id="venueHowTo">
+        <summary>How to use this TV schedule <span class="venue-howto-hint">— instructions</span></summary>
+        <div class="venue-howto-content">
+          <p><strong>1. Find a broadcast.</strong> Choose a date or search by programme, team or channel. Times shown are Melbourne broadcast times, not necessarily the actual start or finish of the sporting event. The venue's operating hours determine which programmes appear.</p>
+          <p><strong>2. Check clashes.</strong> When two broadcast time slots overlap, you'll see <strong>Clash detected</strong>. Select its <strong>i</strong> button to view the other programmes and their broadcast times. Broadcasts that meet exactly at their end/start boundary are not a clash.</p>
+          <p><strong>3. Choose a preferred screening.</strong> Managers can turn on <strong>Prefer</strong> for the event they'd rather screen. Conflicting alternatives are dimmed, but remain in the schedule and PDF as backups for cancellations, rain delays or changes. Use <strong>Clear preferred screenings</strong> to reset this venue's priorities without changing PDF exclusions.</p>
+          <p><strong>4. Exclude a programme from the PDF.</strong> Managers can switch on <strong>Omit from PDF</strong> for an individual broadcast. It becomes dimmed in the dashboard and is excluded from the export, but remains available to restore. This differs from <strong>Omit title</strong>, which removes all programmes with that title from the venue schedules and is available only to the administrator.</p>
+          <p><strong>5. Export the schedule.</strong> Select <strong>Export TV schedule (PDF)</strong>. In the print window choose <strong>Save as PDF</strong>. The export covers all upcoming programmes eligible for this venue, even when the current search or date filter is narrower. Non-preferred alternatives appear grey; programmes omitted from the PDF do not appear.</p>
+          <p class="venue-howto-caveat"><strong>Saving choices:</strong> Screening priorities and PDF exclusions currently save only in this browser. They are not automatically shared with other managers or devices. This is a planning guide; always confirm live broadcast arrangements with the broadcaster.</p>
+        </div>
+      </details>
       <div id="venueSummary" class="venue-status">Loading XMLTV broadcasts from S3…</div>
       <div class="venue-table-wrap"><table class="venue-table"><thead><tr>
         <th>Teams / Event</th><th>Broadcast Start Time <details class="sport-heading-help"><summary aria-label="About broadcast start time">i</summary><div class="sport-help-content">Actual event start time may differ from broadcast start time.</div></details></th><th>Broadcast End Time <details class="sport-heading-help"><summary aria-label="About broadcast end time">i</summary><div class="sport-help-content">Actual event end time may differ from broadcast end time.</div></details></th><th>Channel</th><th>Screening Priority <details class="sport-heading-help"><summary aria-label="About screening priority">i</summary><div class="sport-help-content">If a clash is detected, select the event you would rather show. Other overlapping programmes remain on the PDF as alternatives in case of cancellations, rain delays or schedule changes.</div></details></th><th>PDF</th><th class="sam-only-omit">Omit</th>
@@ -2007,7 +2027,7 @@
     if(['P5','HATF'].includes(name)){
       ve('venueHeading').textContent=name==='P5'?'Live Sport P5':'Live Sport HATF';
       ve('venueRules').textContent=name==='P5'?'Plus 5: daily, 10:00 am–10:00 pm':'Henry and the Fox: Monday–Friday, 6:30 am–10:00 pm';
-      ve('venueManagerActions').style.display=managerMode()?'flex':'none';ve('venueOmitActions').style.display=samMode()?'flex':'none';renderVenueRows();
+      ve('venueManagerActions').style.display=managerMode()?'flex':'none';ve('venueOmitActions').style.display=samMode()?'flex':'none';ve('venueResetPriorities').style.display=managerMode()?'':'none';renderVenueRows();
     }
   }
   function syncVenueVisibility(){
@@ -2035,20 +2055,33 @@
     const venue=venueUI.active, whole=allVenueRows(venue), clashes=overlappingGroups(whole);
     const byId=new Map(whole.map(r=>[fixtureId(r),r]));
     const rows=whole.filter(r=>!pdfHidden(venue,fixtureId(r))).sort((a,b)=>startMs(a)-startMs(b));
-    const style=`<style>@page{size:A4 landscape;margin:13mm}body{font-family:Arial,sans-serif;color:#172033;margin:0;font-size:10px}h1{font-size:20px;margin:0 0 5px}p{color:#526071;margin:4px 0 12px}.day{page-break-inside:avoid;margin:18px 0 8px;font-size:13px;font-weight:bold;border-bottom:2px solid #24344d;padding:0 0 5px}table{width:100%;border-collapse:collapse;table-layout:fixed}th{text-align:left;background:#16253b;color:white;padding:8px;font-size:10px}td{padding:8px;border-bottom:1px solid #d8dfe8;vertical-align:top;overflow-wrap:anywhere}tr{break-inside:avoid}tr.dim{color:#8c95a1;background:#f3f4f6}tr.dim .sub{color:#a2a9b1}.sub{font-size:9px;color:#536476;margin-top:3px}.preferred{color:#17623c;font-weight:bold}.foot{margin-top:16px;font-size:9px;color:#687589}</style>`;
+    const style=`<style>@page{size:A4 landscape;margin:13mm}body{font-family:Arial,sans-serif;color:#172033;margin:0;font-size:10px}h1{font-size:20px;margin:0 0 5px}p{color:#526071;margin:4px 0 12px}.day{page-break-inside:avoid;margin:18px 0 8px;font-size:13px;font-weight:bold;border-bottom:2px solid #24344d;padding:0 0 5px}table{width:100%;border-collapse:collapse;table-layout:fixed}th{text-align:left;background:#16253b;color:white;padding:8px;font-size:10px}td{padding:8px;border-bottom:1px solid #d8dfe8;vertical-align:top;overflow-wrap:anywhere}tr{break-inside:avoid}tr.dim{color:#8c95a1!important;background:#f1f3f6!important;opacity:.56}tr.dim b{font-weight:normal}tr.dim .sub{color:#a2a9b1}.sub{font-size:9px;color:#536476;margin-top:3px}.preferred{color:#17623c;font-weight:bold}.foot{margin-top:16px;font-size:9px;color:#687589}</style>`;
     const dayGroups=new Map();for(const r of rows){const day=new Intl.DateTimeFormat('en-AU',{timeZone:'Australia/Melbourne',weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(new Date(startMs(r)));if(!dayGroups.has(day))dayGroups.set(day,[]);dayGroups.get(day).push(r);}
     const sections=[...dayGroups].map(([day,items])=>`<section><div class="day">${escapeHtml(day)}</div><table><colgroup><col style="width:38%"><col style="width:17%"><col style="width:17%"><col style="width:16%"><col style="width:12%"></colgroup><thead><tr><th>Teams / Event</th><th>Broadcast start*</th><th>Broadcast end</th><th>Channel</th><th>Screening priority</th></tr></thead><tbody>${items.map(r=>{
       const id=fixtureId(r),clashNames=relatedClashNames(venue,r,clashes,byId),selected=currentPriority(venue,id);
       const hasPreferredAlternative=clashNames.length && (clashes.get(id)||[]).some(other=>other!==id&&currentPriority(venue,other));
-      const dim=hasPreferredAlternative&&!selected;
+      const dim=Boolean(hasPreferredAlternative&&!selected);
       const title=r.epg_title||eventTitle(r),detail=eventTitle(r)!==title?`<div class="sub">${escapeHtml(eventTitle(r))}</div>`:'';
-      return `<tr class="${dim?'dim':''}"><td><b>${escapeHtml(title)}</b>${detail}</td><td>${escapeHtml(sportDateTime(r.coverage_start_local))}</td><td>${escapeHtml(sportDateTime(r.coverage_end_local))}</td><td>${escapeHtml(r.channel||'—')}</td><td>${selected?'<span class="preferred">Preferred screening</span>':hasPreferredAlternative?'Alternative':'—'}</td></tr>`;
+      return `<tr class="${dim?'dim':''}"><td><b>${escapeHtml(title)}</b>${detail}</td><td>${escapeHtml(sportDateTime(r.coverage_start_local))}</td><td>${escapeHtml(sportDateTime(r.coverage_end_local))}</td><td>${escapeHtml(r.channel||'—')}</td><td>${selected?'<span class="preferred">Preferred screening</span>':hasPreferredAlternative?'Alternative — non-preferred':'—'}</td></tr>`;
     }).join('')}</tbody></table></section>`).join('');
     const html=`<!doctype html><html><head><meta charset="utf-8"><title>${venue==='P5'?'Plus 5':'Henry and the Fox'} — TV schedule</title>${style}</head><body><h1>${venue==='P5'?'Plus 5':'Henry and the Fox'} — Upcoming TV Schedule</h1><p>Melbourne broadcast times · Generated ${escapeHtml(new Date().toLocaleString('en-AU',{timeZone:'Australia/Melbourne'}))} · ${rows.length} broadcasts</p>${sections||'<p>No programmes for this venue.</p>'}<p class="foot">*Actual sport start time may vary. Grey entries overlap a selected preferred screening. Omitted programmes and manager-marked Omit from PDF entries are excluded.</p></body></html>`;
     const w=window.open('','_blank');if(!w){alert('Allow pop-ups to export your TV schedule.');return;}
     w.document.open();w.document.write(html);w.document.close();w.focus();setTimeout(()=>{try{w.print();}catch(e){console.warn('Print dialogue unavailable:',e);}},350);
   }
   ve('venueExportPDF').addEventListener('click',printableSchedule);
+  // Clear every preferred screening for the active venue, including preferences
+  // loaded from shared S3. This is a local override until a shared save is added.
+  ve('venueResetPriorities').addEventListener('click',()=>{
+    if(!managerMode()||!['P5','HATF'].includes(venueUI.active))return;
+    const venue=venueUI.active;
+    if(!window.confirm(`Clear all preferred screenings for ${venue==='P5'?'Plus 5':'Henry and the Fox'}?`))return;
+    const keys=new Set([...Object.keys(venueUI.priorities[venue]||{}),
+                        ...Object.keys(venueUI.draft[venue]||{})]);
+    for(const row of allVenueRows(venue))keys.add(fixtureId(row));
+    for(const key of keys)venueUI.draft[venue][key]=false;
+    renderVenueRows();
+  });
+
   function renderVenueRows(){
     if(!['P5','HATF'].includes(venueUI.active))return;
     const venue=venueUI.active,whole=allVenueRows(venue),clashes=overlappingGroups(whole),wholeById=new Map(whole.map(r=>[fixtureId(r),r]));
